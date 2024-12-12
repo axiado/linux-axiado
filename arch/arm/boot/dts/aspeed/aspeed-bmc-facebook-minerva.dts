@@ -1297,6 +1297,11 @@
 		compatible = "nxp,pcf8563";
 		reg = <0x51>;
 	};
+
+	rtc@68 {
+		compatible = "dallas,ds1339";
+		reg = <0x68>;
+	};
 };
 
 &i2c12 {
