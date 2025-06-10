@@ -223,7 +223,7 @@
 &i2c1 {
 	status = "okay";
 
-	tmp75@4b {
+	temperature-sensor@4b {
 		compatible = "ti,tmp75";
 		reg = <0x4b>;
 	};
@@ -316,7 +316,7 @@
 		reg = <0x69>;
 	};
 
-	tmp75@49 {
+	temperature-sensor@49 {
 		compatible = "ti,tmp75";
 		reg = <0x49>;
 	};
