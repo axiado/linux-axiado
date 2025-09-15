@@ -21,6 +21,7 @@
 	};
 
 	chosen {
+		bootargs = "console=ttyPS3,115200 nr_cpus=4 earlycon";
 		stdout-path = "serial3:115200";
 	};
 
