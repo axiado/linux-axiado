@@ -342,6 +342,16 @@ config PCIE_XILINX_CPM
 	  Say 'Y' here if you want kernel support for the
 	  Xilinx Versal CPM host bridge.
 
+config PCIE_AXIADO
+	bool "Axiado PCIe Controller"
+	depends on PCI
+	depends on ARCH_AXIADO && (OF || COMPILE_TEST)
+	help
+	  Say Y if you want PCIe Controller Support on Axiado SoCs.
+	  Both the PCIe Root Port (Host) mode and
+	  PCIe End-Point mode are supported by enabling
+	  this config.
+
 source "drivers/pci/controller/cadence/Kconfig"
 source "drivers/pci/controller/dwc/Kconfig"
 source "drivers/pci/controller/mobiveil/Kconfig"
