@@ -1,0 +1,160 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/pci/axiado,ax3000-pcie.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado PCIe controller (PLDA IP based)
+
+maintainers:
+  - Shubhangini G <shubhangini@axiado.com>
+  - Makarand Pawagi <mpawagi@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  This PCIe controller is based on the PLDA XpressRich PCIe IP.
+  The controller instances are dual mode where in they can work either in
+  Root Port mode or Endpoint mode but one at a time.
+
+allOf:
+  - $ref: /schemas/pci/pci-host-bridge.yaml#
+
+properties:
+  compatible:
+    enum:
+      - axiado,ax3000-pcie
+
+  device_role:
+    description: |
+       code for the pcie role.
+       - "host": PCIe Host
+       - "vga": PCIe VGA
+       - "eth": PCIe ETH
+    items:
+      enum: [ host, vga, eth ]
+    $ref: /schemas/types.yaml#/definitions/non-unique-string-array
+
+  num-lanes:
+    description: |
+      number of lanes to use
+    $ref: /schemas/types.yaml#/definitions/uint32
+    minimum: 1
+    maximum: 2
+
+  reg:
+    description: |
+      Register definitions for the controller's various blocks.
+    items:
+      - description: controller's configuration registers
+      - description: phy configuration registers
+      - description: aperture to access configuration space
+      - description: mailbox configuration registers
+      - description: ioctl configuration registers
+      - description: ext configuration registers
+    minItems: 6
+
+  reg-names:
+    items:
+      - const: csr
+      - const: phy
+      - const: cfg
+      - const: mbx
+      - const: ioctl
+      - const: ext
+
+  interrupts:
+    items:
+      - description: MSI interrupt
+
+  interrupt-names:
+    items:
+      - const: msi
+
+  clocks:
+    items:
+      - description: module clock
+
+  clock-names:
+    items:
+      - const: clk_pclk
+
+  bus-range:
+    maxItems: 2
+
+  ranges:
+    description: PCI address ranges for I/O, memory, and prefetchable memory
+
+  '#address-cells':
+    const: 3
+
+  '#size-cells':
+    const: 2
+
+
+unevaluatedProperties: false
+
+required:
+  - compatible
+  - device_type
+  - reg
+  - reg-names
+  - interrupts
+  - interrupt-names
+  - interrupt-map
+  - interrupt-map-mask
+  - clocks
+  - clock-names
+  - num-lanes
+  - bus-range
+  - ranges
+  - "#address-cells"
+  - "#size-cells"
+
+examples:
+  - |
+
+    #include <dt-bindings/interrupt-controller/irq.h>
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+    soc@0 {
+        #address-cells = <2>;
+        #size-cells = <2>;
+        ranges = <0x0 0x0 0x0 0x0 0x0>;
+        pcie_x1: pcie@85200000 {
+                        compatible = "axiado,ax3000-pcie";
+                        status = "disabled";
+                        device_type = "pci";
+                        device_role = "vga"; /* VGA EP */
+                        reg = <0 0x85200000 0 0x1000 /* CSR reg */
+                               0 0x85300000 0 0x4000 /* PHY reg */
+                               0 0x85202000 0 0x1000 /* CFG space */
+                               0 0x85280000 0 0x80000 /* MBX reg */
+                               0 0x80702400 0 0x100 /* IOCTL reg */
+                               0 0x85240000 0 0x1000>; /* EXT reg */
+                        reg-names = "csr", "phy", "cfg", "mbx", "ioctl", "ext";
+                        #address-cells = <3>;
+                        #size-cells = <2>;
+                        interrupts = <GIC_SPI 33 IRQ_TYPE_LEVEL_HIGH>; /* MSI interrupt */
+                        interrupt-names = "msi";
+                        interrupt-map-mask = <0 0 0 7>;
+                        interrupt-map = <0 0 0 1 &gic500 0>, /* int_a */
+                                        <0 0 0 2 &gic500 1>, /* int_b */
+                                        <0 0 0 3 &gic500 2>, /* int_c */
+                                        <0 0 0 4 &gic500 3>; /* int_d */
+                        num-lanes = <1>;
+                        clocks = <&clk_pclk> ;
+                        clock-names = "clk_pclk";
+                        bus-range = <0x00 0xff>;
+                        ranges = <0x83000000 0x3 0xE0000000 0x3 0xE0000000 0x0 0x400000
+                                 0x82000000 0x0 0x90000000 0x0 0x90000000 0x0 0x8000000
+                                 0xc2000000 0x0 0x98000000 0x0 0x98000000 0x0 0x100000>;
+
+                        pci0: pci@1,0 {
+                                device_type = "pci";
+                                assigned-addresses = <0x83000800 0x3 0xE0000000 0 0x400000>;
+                                reg = <0x00800 0 0 0 0>;
+                                #address-cells = <3>;
+                                #size-cells = <2>;
+                                ranges;
+                        };
+                };
+        };
