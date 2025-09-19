@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/axiado/axiado,ax3000-hdmi.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado AX3000 HDMI TX Encoder
+
+maintainers:
+  - Makarand Pawagi <mpawagi@axiado.com>
+  - SriNavmani A <srinavmani@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  The HDMI transmitter is a Innosilicon HDMI TX controller IP
+  with a companion PHY IP.
+
+properties:
+    compatible:
+        const: axiado,ax3000-hdmi
+
+    reg:
+        maxItem: 1
+
+    memory-region:
+        maxItem: 1
+
+    clocks:
+        maxItem: 2
+
+    clock-names:
+        maxItem: 2
+
+    interrupts:
+        maxItem: 1
+
+required:
+  - compatible
+  - reg
+  - memory-region
+  - clocks
+  - clock-names
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    hdmi: hdmi@80C11000 {
+        compatible ="axiado,ax3000-hdmi";
+        reg = <0x00 0x80C11000 0x00 0x4000>;
+        memory-region = <&pci_ep_disp>;
+        interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
+        clocks =  <&clk_disp>, <&clk_pclk>;
+        clock-names = "clk_disp", "clk_pclk";
+    };
+...
