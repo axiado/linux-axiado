@@ -81,3 +81,7 @@
 &uart3 {
 	status = "okay";
 };
+
+&usb2_0 {
+	status = "okay";
+};
