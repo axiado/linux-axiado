@@ -507,6 +507,38 @@
 			clocks = <&refclk &refclk>;
 			status = "disabled";
 		};
+
+		usb2_0: usb@81000000 {
+			compatible = "axiado,ax3000-xhci", "generic-xhci";
+			reg = <0x00 0x81000000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 19 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		usb2_1: usb@81100000 {
+			compatible = "axiado,ax3000-xhci", "generic-xhci";
+			reg = <0x00 0x81100000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 20 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		usb3_0: usb@81400000 {
+			compatible = "axiado,ax3000-xhci", "generic-xhci";
+			reg = <0x00 0x81400000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 17 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		usb3_1: usb@81500000 {
+			compatible = "axiado,ax3000-xhci", "generic-xhci";
+			reg = <0x00 0x81500000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
 	};
 
 	timer {
