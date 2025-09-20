@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
+ /*
+  * DTSI file for Axiado AX3000-SCM3003
+  * Copyright (c) 2025 Axiado Corporation.
+  */
+
+#include "ax3000-scm.dtsi"
