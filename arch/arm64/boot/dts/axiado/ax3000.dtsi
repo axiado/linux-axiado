@@ -89,6 +89,10 @@
 		};
 	};
 
+	display-subsystem {
+		compatible = "axiado,display-subsystem";
+	};
+
 	clocks {
 		clk_xin: clock-200000000 {
 			compatible = "fixed-clock";
