@@ -1,0 +1,17 @@
+config DRM_AXIADO
+	bool "HDMI specific extensions"
+	depends on DRM
+	select DRM_KMS_HELPER
+	select DRM_GEM_DMA_HELPER
+	help
+	  Choose this option to enable support for the Axiado AX3000
+	  Display Subsystem DRM driver. The display-subsystem node
+	  represents a container that ties together the display
+	  pipeline blocks using the standard device-tree ports/endpoint
+	  graph bindings.
+
+	  If you want to use the AX3000 SoC integrated HDMI or related
+	  display controllers under the Direct Rendering Manager (DRM)
+	  framework, say Y or M here.
+
+	  If unsure, say N.
