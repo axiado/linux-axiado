@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/axiado/axiado,display-subsystem.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado DRM
+
+maintainers:
+  - Makarand Pawagi <mpawagi@axiado.com>
+  - SriNavmani A <srinavmani@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+    Minimal binding for AX3000 SoC display subsystem container node that ties
+    together display pipeline blocks.
+
+properties:
+
+  compatible:
+    const: axiado,display-subsystem
+
+required:
+  - compatible
+
+additionalProperties: false
+
+examples:
+  - |
+    display-subsystem {
+        compatible = "axiado,display-subsystem";
+    };
+...
