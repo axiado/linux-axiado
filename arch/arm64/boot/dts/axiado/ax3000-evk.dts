@@ -262,3 +262,11 @@
 &saradc {
 	status = "okay";
 };
+
+&pcie_x1 {
+	status = "okay";
+};
+
+&pcie_x2 {
+	status = "okay";
+};
