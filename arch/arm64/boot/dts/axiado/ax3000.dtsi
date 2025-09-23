@@ -118,6 +118,13 @@
 			#clock-cells = <0>;
 			clock-frequency = <25000000>;
 		};
+
+		clk_pclk: clk_pclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <74250000>;
+			clock-output-names = "clk_pclk";
+		};
 	};
 
 	soc {
@@ -1273,6 +1280,86 @@
 			status = "disabled";
 		};
 
+		pcie_x1: pcie@85200000 {
+			compatible = "axiado,ax3000-pcie";
+			status = "disabled";
+			device_type = "pci";
+			device_role = "vga"; /* VGA EP */
+			reg = <0 0x85200000 0 0x1000>, /* CSR reg */
+			      <0 0x85300000 0 0x4000>, /* PHY reg */
+			      <0 0x85202000 0 0x1000>, /* CFG space */
+			      <0 0x85280000 0 0x80000>, /* MBX reg */
+			      <0 0x80702400 0 0x100>, /* IOCTL reg */
+			      <0 0x85240000 0 0x1000>; /* EXT reg */
+			reg-names = "csr", "phy", "cfg", "mbx", "ioctl", "ext";
+			#address-cells = <3>;
+			#size-cells = <2>;
+			interrupts = <GIC_SPI 33 IRQ_TYPE_LEVEL_HIGH>; /* MSI interrupt */
+			interrupt-names = "msi";
+			interrupt-map-mask = <0 0 0 7>;
+			interrupt-map = <0 0 0 1 &gic500 0>, /* int_a */
+					<0 0 0 2 &gic500 1>, /* int_b */
+					<0 0 0 3 &gic500 2>, /* int_c */
+					<0 0 0 4 &gic500 3>; /* int_d */
+			num-lanes = <1>;
+			clocks = <&clk_pclk> ;
+			clock-names = "clk_pclk";
+			bus-range = <0x00 0xff>;
+			ranges = <0x83000000 0x3 0xE0000000 0x3 0xE0000000 0x0 0x400000>,
+				 /* 4M - Port0 Config */
+				 <0x82000000 0x0 0x90000000 0x0 0x90000000 0x0 0x8000000>,
+				 /* 128M - prefetchable */
+				 <0xc2000000 0x0 0x98000000 0x0 0x98000000 0x0 0x100000>;
+				 /* 1M - non-prefetchable */
+
+			pci0: pci@1,0 {
+				device_type = "pci";
+				assigned-addresses = <0x83000800 0x3 0xE0000000 0 0x400000>;
+				reg = <0x00800 0 0 0 0>;
+				#address-cells = <3>;
+				#size-cells = <2>;
+				ranges;
+			};
+		};
+
+		pcie_x2: pcie@85000000 {
+			compatible = "axiado,ax3000-pcie";
+			status = "disabled";
+			device_type = "pci";
+			device_role = "host"; /* Host Bridge */
+			reg = <0 0x85000000 0 0x1000>, /* CSR reg */
+			      <0 0x85100000 0 0x4000>, /* PHY reg */
+			      <0 0x85002000 0 0x4000>, /* CFG space */
+			      <0 0x85080000 0 0x80000>, /* MBX reg */
+			      <0 0x80702400 0 0x100>, /* IOCTL reg */
+			      <0 0x85040000 0 0x1000>; /* EXT reg */
+			reg-names = "csr", "phy", "cfg", "mbx", "ioctl","ext";
+			num-lanes = <2>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			interrupts = <GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>; /* MSI interrupt */
+			interrupt-names = "msi";
+			interrupt-map-mask = <0 0 0 7>;
+			interrupt-map = <0 0 0 1 &gic500 0>,
+					<0 0 0 2 &gic500 1>,
+					<0 0 0 3 &gic500 2>,
+					<0 0 0 4 &gic500 3>;
+			clocks = <&clk_pclk> ;
+			clock-names = "clk_pclk";
+			bus-range = <0x00 0xff>;
+			ranges = <0x83000000 0x2 0xE0000000 0x2 0xE0000000 0x0 0x400000>,
+				 <0xc2000000 0x0 0x99000000 0x0 0x99000000 0x0 0x100000>,
+				 <0x82000000 0x0 0xa0000000 0x0 0xa0000000 0x0 0x10000000>;
+
+			pci1: pci@1,0 {
+				device_type = "pci";
+				assigned-addresses = <0x83000800 0x2 0xE0000000 0 0x400000>;
+				reg = <0x00800 0 0 0 0>;
+				#address-cells = <3>;
+				#size-cells = <2>;
+				ranges;
+			};
+		};
 	};
 
 	timer {
