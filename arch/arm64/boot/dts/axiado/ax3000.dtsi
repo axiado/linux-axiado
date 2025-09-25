@@ -102,6 +102,18 @@
 			#clock-cells = <0>;
 			clock-frequency = <125000000>;
 		};
+
+		spi_clk: spi_clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <25000000>;
+		};
+
+		apb_pclk: apb_pclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <25000000>;
+		};
 	};
 
 	soc {
@@ -226,6 +238,52 @@
 			#gpio-cells = <2>;
 			interrupt-controller;
 			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		spi0: spi@80510000 {
+			compatible = "axiado,ax3000-spi";
+			reg = <0x00 0x80510000 0x00 0x1000>;
+			clock-names = "ref", "pclk";
+			clocks = <&spi_clk>, <&apb_pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 115 IRQ_TYPE_LEVEL_HIGH>;
+			num-cs = <1>;
+			status = "disabled";
+		};
+
+		spi1: spi@80590000 {
+			compatible = "axiado,ax3000-spi";
+			reg = <0x00 0x80590000 0x00 0x1000>;
+			clock-names = "ref", "pclk";
+			clocks = <&spi_clk>, <&apb_pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 116 IRQ_TYPE_LEVEL_HIGH>;
+			num-cs = <1>;
+			status = "disabled";
+		};
+
+		spi2: spi@80610000 {
+			compatible = "axiado,ax3000-spi";
+			reg = <0x00 0x80610000 0x00 0x1000>;
+			clock-names = "ref", "pclk";
+			clocks = <&spi_clk>, <&apb_pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 117 IRQ_TYPE_LEVEL_HIGH>;
+			num-cs = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		spi3: spi@80690000 {
+			compatible = "axiado,ax3000-spi";
+			reg = <0x00 0x80690000 0x00 0x1000>;
+			clock-names = "ref", "pclk";
+			clocks = <&spi_clk>, <&apb_pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 118 IRQ_TYPE_LEVEL_HIGH>;
+			num-cs = <1>;
 			status = "disabled";
 		};
 
