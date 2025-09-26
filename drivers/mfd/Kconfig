@@ -759,6 +759,30 @@ config MFD_KEMPLD
 	  This driver can also be built as a module. If so, the module
 	  will be called kempld-core.
 
+config MFD_AXIADO_SPI
+	tristate "Axiado SPI-based MFD Bridge"
+	depends on SPI_MASTER
+	select REGMAP_IRQ
+	help
+	  Say yes here to enable support for the Axiado SPI-based
+	  multi-function device bridge. This driver provides a
+	  regmap interface to child devices and includes IRQ chip
+	  functionality for LTPI controllers. The driver supports
+	  interrupt handling and provides debugfs interface for
+	  register access debugging.
+
+config MFD_AXIADO_SPI_DEBUG_FS
+	bool "Enable debugfs interface for Axiado MFD SPI driver"
+	depends on MFD_AXIADO_SPI
+	depends on DEBUG_FS
+	help
+	  Enable this option to provide a debugfs interface for the Axiado MFD SPI driver.
+	  When enabled, the driver will create a debugfs directory at
+	  /sys/kernel/debug/axiado-mfd/ that exposes internal registers and
+	  status information useful for development and troubleshooting.
+	  This option is intended primarily for debugging and should normally
+	  be disabled on production systems.
+
 config MFD_88PM800
 	tristate "Marvell 88PM800"
 	depends on I2C
