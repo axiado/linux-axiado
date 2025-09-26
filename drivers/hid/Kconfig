@@ -169,6 +169,24 @@ config HID_AUREAL
 	help
 	Support for Aureal Cy se W-01RN Remote Controller and other Aureal derived remotes.
 
+config HID_AXIADO
+	tristate "Axiado HPM bridging support for USB generic HID"
+	default n
+	help
+	  Say Y here if you have an Axiado AX3000 device and want to
+	  enable HPM (Host Processor Machine) bridging support for
+	  USB Human Interface Devices (HID) such as keyboard and mice.
+
+	  This option enables the hid-axiado driver in the kernel, which
+	  allows HID raw reports to be forwarded through the HPM
+	  bridge. It is required the Axiado f_hid_axiado USB gadget.
+	  function.
+
+	  You must enable f_hid_axiado in /drivers/usb/gadget/function.
+	  to use bridging feature for Axiado platforms.
+
+	  If unsure, say N.
+
 config HID_BELKIN
 	tristate "Belkin Flip KVM and Wireless keyboard"
 	default !EXPERT
