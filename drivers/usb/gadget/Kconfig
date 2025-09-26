@@ -216,6 +216,9 @@ config USB_F_MIDI2
 config USB_F_HID
 	tristate
 
+config USB_F_HID_AXIADO
+	tristate
+
 config USB_F_PRINTER
 	tristate
 
@@ -463,6 +466,26 @@ config USB_CONFIGFS_F_HID
 	  Human Interface Devices (HID).
 
 	  For more information, see Documentation/usb/gadget_hid.rst.
+
+config USB_CONFIGFS_F_HID_AXIADO
+	bool "Axiado HID function"
+	depends on USB_CONFIGFS
+	depends on HID_AXIADO
+	select USB_F_HID_AXIADO
+	help
+	  Say Y here to enable the Axiado HID function driver for use with
+	  the USB ConfigFS gadget framework for Bridging the USB-HID
+	  Host to device such as keyboard and mice.
+
+	  This function driver provides Host Processor Machine (HPM)
+	  bridge support for USB Human Interface Devices (HID) such as
+	  keyboards and mice. It allows HID raw reports to be transferred
+	  between the USB gadget side and the Axiado HPM bridge, enabling
+	  communication between the device and the host processor for
+	  control and monitoring.
+
+	  To use this function, you must enable hid-axiado from
+	  /driver/hid to use bridging feature for Axiado Platforms.
 
 config USB_CONFIGFS_F_UVC
 	bool "USB Webcam function"
