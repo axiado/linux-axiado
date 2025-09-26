@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/mfd/axiado,spi-bridge.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado SPI Bridge MFD Device
+
+maintainers:
+  - Tzu-Hao Wei <twei@axiado.com>
+  - Swark Yang <syang@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  The Axiado SPI Bridge is an SPI device that acts as a Multi-Function
+  Device (MFD) parent. It provides a regmap interface for register access
+  to its child devices and can optionally function as an interrupt
+  controller, managing an internal IRQ domain for them.
+
+  Communication with the hardware is handled via a 3-phase SPI transaction:
+  - Phase 1 (Bytes 0-3): Address word
+  - Phase 2 (Bytes 4-7): Dummy
+  - Phase 3 (Bytes 8-11): Data
+
+properties:
+  compatible:
+    items:
+      - enum:
+          - axiado,ax3000-spi-bridge
+      - const: axiado,spi-bridge
+
+  reg:
+    maxItems: 1
+    description: SPI chip select number
+
+  spi-max-frequency:
+    description: Maximum SPI bus frequency in Hz
+    minimum: 1000000
+    maximum: 50000000
+
+  '#address-cells':
+    const: 1
+
+  '#size-cells':
+    const: 1
+
+  interrupts:
+    maxItems: 1
+    description:
+      The shared interrupt line from the MFD bridge that signals events
+      (e.g., from child devices) to the main processor.
+
+  interrupt-names:
+    items:
+      - const: mfd-shared
+
+  interrupt-controller:
+    description: Declares this node as an interrupt controller.
+
+  '#interrupt-cells':
+    const: 1
+
+patternProperties:
+  "^([a-zA-Z][a-zA-Z0-9,-]+)@([0-9a-fA-F])+$":
+    type: object
+    description: Child device nodes bridged by the MFD.
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+
+    spi {
+      #address-cells = <1>;
+      #size-cells = <0>;
+      spi-bridge@0 {
+          compatible = "axiado,ax3000-spi-bridge", "axiado,spi-bridge";
+          reg = <0>;
+          spi-max-frequency = <25000000>;
+          #address-cells = <1>;
+          #size-cells = <1>;
+
+          /* Child devices can be defined here */
+          i2c@0 {
+              compatible = "xlnx,xps-iic-2.00.a";
+              #address-cells = <1>;
+              #size-cells = <0>;
+              reg = <0x0 0x800>;
+              clocks = <&foo_clk>;
+              interrupt-controller;
+              #interrupt-cells = <2>;
+              interrupt-parent = <&fake_intc0>;
+              interrupts = <11 IRQ_TYPE_LEVEL_HIGH>; /* GPIO_203 I2C slave interrupt */
+              clock-frequency = <100000>;
+              status = "disabled";
+        };
+      };
+    };
