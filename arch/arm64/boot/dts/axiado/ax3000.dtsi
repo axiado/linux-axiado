@@ -274,6 +274,23 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "disabled";
+
+			/* MFD parent device representing the Solang peripheral */
+			axiado_mfd: spi-bridge@0 {
+				compatible = "axiado,ax3000-spi-bridge", "axiado,spi-bridge";
+				/* Current spi-axiado drv ignores the value from the device tree */
+				spi-max-frequency = <25000000>;
+				reg = <0x0>; /* Chip select 0 */
+				#address-cells = <1>;
+				#size-cells = <1>;
+				interrupt-controller;
+				#interrupt-cells = <1>;
+				interrupt-names = "mfd-shared";
+				interrupt-parent = <&gpio6>;
+				/* GPIO_212 LTPI-I2C Interrupt */
+				interrupts = <20 IRQ_TYPE_LEVEL_HIGH>;
+				status = "disabled";
+			};
 		};
 
 		spi3: spi@80690000 {
