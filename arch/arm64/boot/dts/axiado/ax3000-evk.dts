@@ -82,6 +82,10 @@
 	status = "okay";
 };
 
+&spi2 {
+	status = "okay";
+};
+
 &usb2_0 {
 	status = "okay";
 };
@@ -111,5 +115,9 @@
 };
 
 &usb2_3 {
+	status = "okay";
+};
+
+&axiado_mfd {
 	status = "okay";
 };
