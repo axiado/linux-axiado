@@ -18,6 +18,7 @@
 #include <linux/of_pci.h>
 #include <linux/pci.h>
 #include <linux/pm_runtime.h>
+#include <linux/soc/axiado/pcie-axiado.h>
 
 #define REG_PCIE_X1_RESET_CTRL_ADRS_OFFSET 0x09c
 #define REG_PCIE_X1_MBX_INTR_MASK_ADRS_OFFSET 0x054
