@@ -290,6 +290,25 @@
 				/* GPIO_212 LTPI-I2C Interrupt */
 				interrupts = <20 IRQ_TYPE_LEVEL_HIGH>;
 				status = "disabled";
+
+				mfd_sgpio0: sgpio@a000 {
+					compatible = "axiado,sgpio";
+					reg = <0xa000 0x800>;
+					gpio-controller;
+					#gpio-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* GPIO_209 SGPIO Interrupt */
+					interrupts = <17 IRQ_TYPE_LEVEL_HIGH>;
+					/* Design variants 128 bit or 512 bit */
+					design-variant = <128>;
+					/* Supports maximum of 128 pins */
+					ngpios = <128>;
+					/* SGPIO Clock frequency 12 MHz */
+					bus-frequency = <12000000>;
+					apb-frequency = <100000000>;
+					dout-init = <0x00000000 0x00000000 0x00000000 0x00000000>;
+					status = "disabled";
+				};
 			};
 		};
 
