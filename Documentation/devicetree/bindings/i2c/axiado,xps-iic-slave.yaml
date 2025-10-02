@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/i2c/axiado,xps-iic-slave.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado XIIC I2C Slave Controller
+
+maintainers:
+  - Petar Stepanovic <pstepanovic@axiado.com>
+  - Tzu-Hao Wei <twei@axiado.com>
+  - Swark Yang <syang@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  Axiado I²C slave-only controller derived from the Xilinx XIIC IP core.
+  The driver accesses this device through a regmap interface, typically provided
+  by a parent device such as an MFD, but not strictly required.
+
+properties:
+  compatible:
+    const: axiado,xps-iic-slave
+
+  reg:
+    maxItems: 1
+    description: Base offset within the parent regmap.
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    spi-bridge@0 {
+        compatible = "axiado,ax3000-spi-bridge", "axiado,spi-bridge";
+        reg = <0x0 0x1000>;
+        #address-cells = <1>;
+        #size-cells = <1>;
+        interrupt-parent = <&gpio6>;
+        interrupts = <20 IRQ_TYPE_LEVEL_HIGH>;
+        status = "disabled";
+
+        i2c-ssif@0 {
+            compatible = "axiado,xps-iic-slave";
+            reg = <0x0 0x800>;
+            interrupt-parent = <&gpio6>;
+            interrupts = <11 IRQ_TYPE_LEVEL_HIGH>;
+            status = "disabled";
+        };
+    };
