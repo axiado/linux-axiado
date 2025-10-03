@@ -4,9 +4,13 @@
 
 #include <linux/i2c.h>
 #include <linux/platform_device.h>
+#include <linux/completion.h>
 #include <linux/clk.h>
 #include <linux/reset.h>
 #include <linux/pinctrl/consumer.h>
+#if IS_ENABLED(CONFIG_I2C_CADENCE_REGMAP)
+#include <linux/regmap.h>
+#endif
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 /**
@@ -67,6 +71,10 @@ enum cdns_i2c_slave_state {
 struct cdns_i2c {
 	struct device		*dev;
 	void __iomem *membase;
+#if IS_ENABLED(CONFIG_I2C_CADENCE_REGMAP)
+	struct regmap *regmap;
+	u32 regmap_base_offset;
+#endif
 	struct i2c_adapter adap;
 	struct i2c_msg *p_msg;
 	int err_status;
@@ -94,5 +102,9 @@ struct cdns_i2c {
 	u32 fifo_depth;
 	unsigned int transfer_size;
 };
+
+/* Shared functions exported from i2c-cadence.c */
+int cdns_i2c_probe_common(struct platform_device *pdev, struct cdns_i2c *id);
+void cdns_i2c_remove_common(struct cdns_i2c *id);
 
 #endif /* _I2C_CADENCE_H */

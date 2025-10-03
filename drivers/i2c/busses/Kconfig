@@ -507,6 +507,24 @@ config I2C_CADENCE
 	  Say yes here to select Cadence I2C Host Controller. This controller is
 	  e.g. used by Xilinx Zynq.
 
+config I2C_CADENCE_REGMAP
+	tristate "Cadence I2C regmap support"
+	depends on I2C_CADENCE && OF
+	select REGMAP
+	help
+	  Enable this if the Cadence I2C controller registers are accessed
+	  through a regmap provided by a parent device (for example when the
+	  controller is instantiated as a function of an MFD/bridge device).
+
+	  When selected, the driver will use the parent's regmap to read/write
+	  the controller registers instead of performing direct MMIO accesses.
+	  This is useful on systems where the Cadence I2C block is not exposed
+	  as a discrete MMIO resource, or where register access must be mediated
+	  by a shared bus window.
+
+	  If unsure, say N. This option can be built as a module; the module
+	  will be called i2c-cadence-regmap.
+
 config I2C_CBUS_GPIO
 	tristate "CBUS I2C driver"
 	depends on GPIOLIB || COMPILE_TEST
