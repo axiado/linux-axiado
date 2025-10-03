@@ -89,6 +89,17 @@
 		};
 	};
 
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		pci_ep_disp: pci_ep_disp@40000000 {
+			reg = <0x00 0x40000000 0x00 0x8000000>,
+			      <0x00 0x48000000 0x00 0x100000>;
+			no-map;
+		};
+	};
+
 	display-subsystem {
 		compatible = "axiado,display-subsystem";
 	};
@@ -1359,6 +1370,11 @@
 				#size-cells = <2>;
 				ranges;
 			};
+		};
+
+		video: video {
+			compatible = "axiado,ax3000-video";
+			memory-region = <&pci_ep_disp>;
 		};
 	};
 
