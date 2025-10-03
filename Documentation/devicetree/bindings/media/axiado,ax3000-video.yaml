@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/media/axiado,ax3000-video.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado AX3000 Video Controller
+
+maintainers:
+  - shubhanginig1505 <shubhangini@axiado.com>
+  - Makarand Pawagi <mpawagi@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  This is the device tree binding for the Axiado AX3000 video controller,
+  which is part of the Trusted Control/Compute Unit (TCU).
+  It typically provides a display output for a secure, out-of-band
+  management console within a server environment.
+
+properties:
+  compatible:
+    const: axiado,ax3000-video
+
+  memory-region:
+    $ref: /schemas/types.yaml#/definitions/phandle-array
+    description: |
+      Phandle to a reserved-memory node for the video display's frame
+      buffer or other related memory.
+
+required:
+  - compatible
+  - memory-region
+
+additionalProperties: false
+
+examples:
+  - |
+    video {
+        compatible = "axiado,ax3000-video";
+        memory-region = <&pci_ep_disp>;
+    };
