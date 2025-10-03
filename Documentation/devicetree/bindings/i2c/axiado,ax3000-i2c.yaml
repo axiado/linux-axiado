@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/i2c/axiado,ax3000-i2c.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado AX3000 I2C Controller
+
+maintainers:
+  - Tzu-Hao Wei <twei@axiado.com>
+  - Swark Yang <syang@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+properties:
+  compatible:
+    const: "axiado,ax3000-i2c"
+
+  clocks:
+    minItems: 2
+    maxItems: 2
+
+  clock-names:
+    items:
+      - const: ref   # Reference clock
+      - const: xin   # External input clock
+
+  reg:
+    maxItems: 1
+
+# By using allOf and $ref, we inherit all the common properties
+# like 'reg', 'interrupts', 'clock-frequency' etc. from the base
+# Cadence I2C binding. We only define what's different or specific
+# to the Axiado device here.
+allOf:
+  - $ref: /schemas/i2c/i2c-controller.yaml#
+
+unevaluatedProperties: false
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - clock-names
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    soc {
+        #address-cells = <1>;
+        #size-cells = <1>;
+
+        clock_ref: clock-controller-ref {
+            compatible = "fixed-clock";
+            #clock-cells = <0>;
+            clock-frequency = <100000000>;
+        };
+
+        clock_xin: clock-controller-xin {
+            compatible = "fixed-clock";
+            #clock-cells = <0>;
+            clock-frequency = <25000000>;
+        };
+
+        gpio6: gpio-controller@ff0a0000 {
+            compatible = "some-gpio-controller";
+            reg = <0xff0a0000 0x1000>;
+            gpio-controller;
+            #gpio-cells = <2>;
+            interrupt-controller;
+            #interrupt-cells = <2>;
+        };
+
+        i2c@0 {
+            compatible = "axiado,ax3000-i2c";
+            reg = <0x0 0x800>;
+            interrupt-parent = <&gpio6>;
+            interrupts = <11 IRQ_TYPE_LEVEL_HIGH>;
+            clocks = <&clock_ref>, <&clock_xin>;
+            clock-names = "ref", "xin";
+            clock-frequency = <100000>;
+
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            eeprom@50 {
+                compatible = "atmel,24c02";
+                reg = <0x50>;
+            };
+        };
+    };
