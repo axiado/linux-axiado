@@ -290,7 +290,256 @@
 				/* GPIO_212 LTPI-I2C Interrupt */
 				interrupts = <20 IRQ_TYPE_LEVEL_HIGH>;
 				status = "disabled";
-
+				mfd_i2c0_cdns: i2c@0 {
+					compatible = "axiado,ax3000-i2c";
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <0x0 0x800>;
+					clocks = <&refclk &clk_xin>;
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* GPIO_203 I2C slave interrupt */
+					interrupts = <11 IRQ_TYPE_LEVEL_HIGH>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				/* Child node for the second Cadence I2C IP */
+				mfd_i2c1: i2c@800 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x0800 0x400>; /* i2c_1_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 204 IRQ */
+					interrupts = <12 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c2: i2c@c00 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x0c00 0x400>; /* i2c_2_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 205 IRQ */
+					interrupts = <13 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c3: i2c@1000 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x1000 0x400>; /* i2c_3_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 206 IRQ */
+					interrupts = <14 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c4: i2c@1400 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x1400 0x400>; /* i2c_4_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 207 IRQ */
+					interrupts = <15 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c5: i2c@1800 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x1800 0x400>; /* i2c_5_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 208 IRQ */
+					interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c6: i2c@1c00 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x1c00 0x400>; /* i2c_6_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 217 IRQ */
+					interrupts = <25 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c7: i2c@2000 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x2000 0x400>; /* i2c_7_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 219 IRQ */
+					interrupts = <27 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c8: i2c@2400 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x2400 0x400>; /* i2c_8_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 220 IRQ */
+					interrupts = <28 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c9: i2c@2800 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x2800 0x400>; /* i2c_9_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 221 IRQ */
+					interrupts = <29 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c10: i2c@2c00 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x2c00 0x400>; /* i2c_10_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* Direct GPIO 222 IRQ */
+					interrupts = <30 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c11: i2c@3000 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x3000 0x400>; /* i2c_11_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio7>;
+					/* Direct GPIO 245 IRQ */
+					interrupts = <21 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c12: i2c@3400 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x3400 0x400>; /* i2c_12_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio7>;
+					/* Direct GPIO 237 IRQ */
+					interrupts = <13 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c13: i2c@3800 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x3800 0x400>; /* i2c_13_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio7>;
+					/* Direct GPIO 238 IRQ */
+					interrupts = <14 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c14: i2c@3c00 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x3c00 0x400>; /* i2c_14_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio7>;
+					/* Direct GPIO 239 IRQ */
+					interrupts = <15 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c15: i2c@4000 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x4000 0x400>; /* i2c_15_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio7>;
+					/* Direct GPIO 240 IRQ */
+					interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				mfd_i2c16: i2c@4400 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x4400 0x400>; /* i2c_16_base_addr and size */
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio7>;
+					/* Direct GPIO 241 IRQ */
+					interrupts = <17 IRQ_TYPE_LEVEL_HIGH>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				ltpi_i2c17: i2c@4800 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x4800 0x400>; /* i2c_14_base_addr and size */
+					interrupt-parent = <&axiado_mfd>;
+					#interrupt-cells = <1>;
+					interrupts = <17>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				ltpi_i2c18: i2c@4c00 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x4c00 0x400>; /* i2c_18_base_addr and size */
+					interrupt-controller;
+					#interrupt-cells = <1>;
+					interrupts = <18>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				ltpi_i2c19: i2c@5000 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x5000 0x400>; /* i2c_19_base_addr and size */
+					interrupt-controller;
+					#interrupt-cells = <1>;
+					interrupts = <19>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				ltpi_i2c20: i2c@5400 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x5400 0x400>; /* i2c_20 and size */
+					interrupt-controller;
+					#interrupt-cells = <1>;
+					interrupts = <20>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				ltpi_i2c21: i2c@5800 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x5800 0x400>; /* i2c_21 and size */
+					interrupt-controller;
+					#interrupt-cells = <1>;
+					interrupts = <21>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
+				ltpi_i2c22: i2c@5c00 {
+					compatible = "axiado,ax3000-i2c";
+					reg = <0x5c00 0x400>; /* i2c_22 and size */
+					interrupt-controller;
+					#interrupt-cells = <1>;
+					interrupts = <22>;
+					clocks = <&refclk &clk_xin>;
+					clock-frequency = <100000>;
+					status = "disabled";
+				};
 				mfd_sgpio0: sgpio@a000 {
 					compatible = "axiado,sgpio";
 					reg = <0xa000 0x800>;
