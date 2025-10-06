@@ -708,4 +708,13 @@ config PWM_XILINX
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-xilinx.
 
+config PWM_AXIADO
+     tristate "AXIADO PWM support"
+     depends on OF
+     help
+       Generic PWM framework driver for AXIADO.
+       The Pulse Width Modulator (PWM) is a substantially generic design to enable
+       the processor to program the PWM to produce a signal whose period and duty cycle
+       can vary during operation.
+
 endif
