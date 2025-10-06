@@ -121,3 +121,67 @@
 &axiado_mfd {
 	status = "okay";
 };
+
+&pwm0 {
+	status = "okay";
+};
+
+&pwm1 {
+	status = "okay";
+};
+
+&pwm2 {
+	status = "okay";
+};
+
+&pwm3 {
+	status = "okay";
+};
+
+&pwm4 {
+	status = "okay";
+};
+
+&pwm5 {
+	status = "okay";
+};
+
+&pwm6 {
+	status = "okay";
+};
+
+&pwm7 {
+	status = "okay";
+};
+
+&pwm8 {
+	status = "okay";
+};
+
+&pwm9 {
+	status = "okay";
+};
+
+&pwm10 {
+	status = "okay";
+};
+
+&pwm11 {
+	status = "okay";
+};
+
+&pwm12 {
+	status = "okay";
+};
+
+&pwm13 {
+	status = "okay";
+};
+
+&pwm14 {
+	status = "okay";
+};
+
+&pwm15 {
+	status = "okay";
+};
