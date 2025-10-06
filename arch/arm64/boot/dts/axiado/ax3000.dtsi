@@ -671,6 +671,166 @@
 			interrupts = <GIC_SPI 22 IRQ_TYPE_LEVEL_HIGH>;
 			status = "disabled";
 		};
+
+		pwm0: pwm@80500C00 {
+			compatible = "axiado,ax3000-pwm";
+			reg = <0x00 0x80500C00 0x00 0x400>;
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 93 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		pwm1: pwm@80501000 {
+			compatible = "axiado,ax3000-pwm";
+			reg = <0x00 0x80501000 0x00 0x400>;
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 94 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		pwm2: pwm@80580C00 {
+			compatible = "axiado,ax3000-pwm";
+			reg = <0x00 0x80580C00 0x00 0x400>;
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 95 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		pwm3: pwm@80581000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 96 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80581000 0x00 0x400>;
+			status = "disabled";
+		};
+
+		pwm4: pwm@80600C00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 97 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80600C00 0x00 0x400>;
+			status = "disabled";
+		};
+		pwm5: pwm@80601000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 98 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80601000 0x00 0x400>;
+			status = "disabled";
+		};
+
+		pwm6: pwm@80680C00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 99 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80680C00 0x00 0x400>;
+			status = "disabled";
+		};
+
+		pwm7: pwm@80681000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 100 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80681000 0x00 0x400>;
+			status = "disabled";
+		};
+
+		pwm8: pwm@80700C00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 101 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80700C00 0x00 0x400>;
+			status = "disabled";
+		};
+
+		pwm9: pwm@80701000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 102 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80701000 0x00 0x400>;
+			status = "disabled";
+		};
+
+		pwm10: pwm@80780C00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 103 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80780C00 0x00  0x400>;
+			status = "disabled";
+		};
+
+
+		pwm11: pwm@80781000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 104 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80781000 0x00 0x400>;
+			status = "disabled";
+		};
+
+		pwm12: pwm@80800C00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 105 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80800C00 0x00 0x400>;
+			status = "disabled";
+		};
+
+		pwm13: pwm@80801000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 106 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80801000 0x00 0x400>;
+			status = "disabled";
+		};
+
+		pwm14: pwm@80880C00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 107 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80880C00 0x00  0x400>;
+			status = "disabled";
+		};
+
+		pwm15: pwm@80881000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&refclk &refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 108 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x80881000 0x00 0x400>;
+			status = "disabled";
+		};
 	};
 
 	timer {
