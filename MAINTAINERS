@@ -3434,6 +3434,15 @@ F:	Documentation/devicetree/bindings/phy/axiado,ax3000-emmc-phy.yaml
 F:	drivers/phy/axiado/Kconfig
 F:	drivers/phy/axiado/phy-axiado-emmc.c
 
+AXIADO PWM DRIVER
+M:	Akhila Kavi <akavi@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	Documentation/devicetree/bindings/pwm/axiado,ax3000-pwm.yaml
+F:	drivers/pwm/pwm-axiado.c
+
 AXXIA I2C CONTROLLER
 M:	Krzysztof Adamski <krzysztof.adamski@nokia.com>
 L:	linux-i2c@vger.kernel.org
