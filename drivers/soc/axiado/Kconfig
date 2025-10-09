@@ -17,6 +17,46 @@ config SOC_AXIADO
 
 if SOC_AXIADO
 
+config AXIADO_LTPI
+	tristate "Axiado LTPI GPIO driver"
+	depends on GPIOLIB
+	select GPIOLIB_IRQCHIP
+	help
+	  This driver provides GPIO support for Axiado LTPI (Low-Speed
+	  Transport Protocol Interface) devices. LTPI is a protocol
+	  for low-speed communication between devices.
+
+	  This driver supports:
+	  - GPIO input/output operations
+	  - Interrupt handling for GPIO inputs
+	  - Regmap-based register access
+	  - Debug filesystem support for testing
+
+	  If unsure, say N.
+
+config AXIADO_LTPI_REGMAP
+	bool "Enable regmap support for LTPI driver"
+	depends on AXIADO_LTPI
+	select REGMAP
+	help
+	  Enable regmap support for LTPI register access. This allows
+	  the driver to use regmap for register operations instead of
+	  direct memory mapping.
+
+	  If unsure, say N.
+
+config AXIADO_LTPI_DEBUGFS
+	bool "Enable debug filesystem support for LTPI driver"
+	depends on AXIADO_LTPI
+	depends on DEBUG_FS
+	help
+	  Enable debug filesystem support for LTPI driver testing and
+	  debugging. This creates debugfs entries for simulating
+	  interrupts and dumping internal state.
+
+	  This option is only useful for development and testing.
+	  If unsure, say N.
+
 config AXIADO_SGPIO
 	bool "Axiado SGPIO support"
 	depends on OF_GPIO
