@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/ltpi/axiado,ltpi-gpio.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado LTPI GPIO Driver
+
+maintainers:
+  - Tzu-Hao Wei <twei@axiado.com>
+  - Swark Yang <syang@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  The Axiado LTPI (Low-Speed Transport Protocol Interface) GPIO driver provides
+  a GPIO controller that offers bidirectional GPIO functionality with interrupt support.
+  It supports both input and output GPIO lines with configurable initial output values.
+
+  The LTPI GPIO driver can operate in two modes:
+  1. Direct memory mapping mode - when reg property provides memory region
+  2. Regmap mode - when parent device provides regmap interface
+
+properties:
+  compatible:
+    const: axiado,ltpi
+
+  reg:
+    description: |
+      Memory region for LTPI registers. Contains base address and size.
+      When used with regmap mode, the base address represents the offset
+      within the parent device's regmap.
+    maxItems: 1
+
+  gpio-controller: true
+
+  '#gpio-cells':
+    description: |
+      Must be 2. The first cell is the GPIO number and the second cell
+      is used to specify flags. The first half of GPIOs (0 to ngpios-1)
+      are output-only, the second half (ngpios to 2*ngpios-1) are input-only.
+    const: 2
+
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    description: |
+      Must be 2. The first cell is the interrupt number and the second
+      cell is used to specify flags.
+    const: 2
+
+  interrupts:
+    description: |
+      Interrupt specifier for the LTPI GPIO driver. This interrupt is
+      triggered when input GPIO state changes.
+    maxItems: 1
+
+  ngpios:
+    description: |
+      Number of GPIO lines supported by this controller. Must be a multiple
+      of 32 and not exceed 128.
+    minimum: 32
+    maximum: 128
+    multipleOf: 32
+
+  dout-init:
+    description: |
+      Array of 32-bit values specifying the initial output state for
+      each GPIO bank. The number of elements should match the number
+      of banks required for the specified ngpios (ceil(ngpios/32)).
+      Each bit in a 32-bit value corresponds to one GPIO line.
+    $ref: /schemas/types.yaml#/definitions/uint32-array
+    minItems: 1
+    maxItems: 4
+
+required:
+  - compatible
+  - reg
+  - gpio-controller
+  - '#gpio-cells'
+  - interrupt-controller
+  - '#interrupt-cells'
+  - interrupts
+  - ngpios
+  - dout-init
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    mfd_ltpi0: ltpi@8000 {
+        compatible = "axiado,ltpi";
+        reg = <0x8000 0x2000>;
+        gpio-controller;
+        #gpio-cells = <2>;
+        interrupt-controller;
+        #interrupt-cells = <2>;
+        interrupt-parent = <&gpio6>;
+        interrupts = <18 IRQ_TYPE_LEVEL_HIGH>;
+        ngpios = <128>;
+        dout-init = <0x00000000 0x00000000>;
+    };
