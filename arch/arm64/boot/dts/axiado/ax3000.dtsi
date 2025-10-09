@@ -558,6 +558,22 @@
 					dout-init = <0x00000000 0x00000000 0x00000000 0x00000000>;
 					status = "disabled";
 				};
+				mfd_ltpi0: ltpi@8000 {
+					compatible = "axiado,ltpi";
+					/* Base offset for regmap */
+					reg = <0x8000 0x2000>;
+					gpio-controller;
+					#gpio-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					/* GPIO_210 SGPIO Interrupt */
+					interrupts = <18 IRQ_TYPE_LEVEL_HIGH>;
+					interrupt-controller;
+					#interrupt-cells = <2>;
+					/* Supports maximum of 128 pins */
+					ngpios = <128>;
+					dout-init = <0x00000000 0x00000000 0x00000000 0x00000000>;
+					status = "disabled";
+				};
 			};
 		};
 
