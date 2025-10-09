@@ -3491,6 +3491,16 @@ F:	Documentation/devicetree/bindings/usb/axiado,ax3000-udc.yaml
 F:	drivers/usb/gadget/udc/crg_udc.c
 F:	drivers/usb/gadget/udc/crg_udc.h
 
+AXIADO LTPI CONTROLLER
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+M:	Swark Yang <syang@axiado.com>
+M:	Tzu-Hao Wei <twei@axiado.com>
+L:	linux-gpio@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/ltpi/axiado,ltpi-gpio.yaml
+F:	drivers/soc/axiado/ltpi-axiado.c
+F:	drivers/soc/axiado/ltpi-axiado.h
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
