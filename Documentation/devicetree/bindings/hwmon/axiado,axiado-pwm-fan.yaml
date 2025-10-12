@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/hwmon/axiado,axiado-pwm-fan.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado AX3000 PWM
+
+maintainers:
+  - Akhila Kavi <akavi@axiado.com>
+  - Makarand Pawagi <mpawagi@axiado.com>
+
+description: |+
+  Bindings for PWM Fan on Axiado AX3000 SoC.
+
+  - compatible:         Should be one of the following:
+                        "axiado,ax3000-pwm-fan"
+  - reg:
+      maxItems: 1
+
+properties:
+  compatible:
+    enum:
+      - axiado,ax3000-pwm-fan
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+    description: IRQ for the Capture device
+
+  pwms:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - pwms
+additionalProperties: false
+
+examples:
+  - |
+     fan0: pwm-fan@80501400 {
+        compatible = "axiado,ax3000-pwm-fan";
+        interrupt-parent = <&gic500>;
+        interrupts = <00 150 1>;
+        reg = <0x80501400 0x00 >;
+        pwms = <&pwm0 0 400>;
+      };
+...
