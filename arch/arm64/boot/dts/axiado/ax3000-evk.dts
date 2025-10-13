@@ -185,3 +185,67 @@
 &pwm15 {
 	status = "okay";
 };
+
+&fan0 {
+	status = "okay";
+};
+
+&fan1{
+	status = "okay";
+};
+
+&fan2 {
+	status = "okay";
+};
+
+&fan3 {
+	status = "okay";
+};
+
+&fan4 {
+	status = "okay";
+};
+
+&fan5 {
+	status = "okay";
+};
+
+&fan6 {
+	status = "okay";
+};
+
+&fan7 {
+	status = "okay";
+};
+
+&fan8 {
+	status = "okay";
+};
+
+&fan9 {
+	status = "okay";
+};
+
+&fan10 {
+	status = "okay";
+};
+
+&fan11 {
+	status = "okay";
+};
+
+&fan12 {
+	status = "okay";
+};
+
+&fan13 {
+	status = "okay";
+};
+
+&fan14 {
+	status = "okay";
+};
+
+&fan15 {
+	status = "okay";
+};
