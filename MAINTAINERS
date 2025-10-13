@@ -3443,6 +3443,15 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/pwm/axiado,ax3000-pwm.yaml
 F:	drivers/pwm/pwm-axiado.c
 
+AXIADO FAN CONTROL AND MONITOR DRIVER
+M:	Akhila Kavi <akavi@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-hwmon@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/hwmon/axiado,axiado-pwm-fan.yaml
+F:	drivers/hwmon/axiado-pwm-fan.c
+
 AXXIA I2C CONTROLLER
 M:	Krzysztof Adamski <krzysztof.adamski@nokia.com>
 L:	linux-i2c@vger.kernel.org
