@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/ipmi/axiado,ax3000-kcs-bmc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado KCS IPMI BMC Interface
+
+maintainers:
+  - Satya Jena <sjena@axiado.com>
+  - Makarand Pawagi <mpawagi@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  The Axiado KCS BMC device provides a Keyboard Controller Style (KCS)
+  interface for IPMI (Intelligent Platform Management Interface) communication
+  between a host system and a BMC (Baseboard Management Controller).
+
+  This driver implements the KCS protocol as defined in the IPMI specification
+  and uses Axiado's eSPI ATU (Address Translation Unit) for host I/O address
+  mapping to internal registers.
+
+  The KCS interface supports standard IPMI operations and provides a character
+  device interface (/dev/ipmi-kcs<N>) for userspace IPMI applications.
+
+properties:
+  compatible:
+    const: axiado,ax3000-kcs-bmc
+
+  reg:
+    maxItems: 1
+    description:
+      Register offset within the parent eSPI controller's peripheral
+      register space. This is not a physical address but an offset
+      used with the parent's regmap interface.
+
+  interrupts:
+    maxItems: 1
+    description:
+      Virtual IRQ number from the parent eSPI controller's external
+      logic IRQ chip. This is the bit position in the external ISR
+      register, not a hardware IRQ number.
+
+  channel-index:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    minimum: 0
+    maximum: 3
+    description:
+      KCS channel index (0-3). Each channel provides an independent
+      KCS interface with its own set of registers and I/O address space.
+
+  io-addr:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description: |
+      Host I/O port address for this KCS channel. This is the address
+      that the host system uses to access the KCS interface. Standard
+      IPMI KCS addresses include 0xCA2 (primary) and 0xCA4, 0xCA6,
+      0xCA8 (alternate channels).
+
+  host-status-offset:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    default: 1
+    enum: [1, 2, 4, 8, 16]
+    description:
+      Offset from the data register to the status/command register from
+      the host's perspective. This defines the register spacing in the
+      host I/O address space. Common values are 1 (consecutive addresses)
+      or 4 (DWORD-aligned).
+
+  addr-size:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    default: 1
+    description:
+      Size of each register in bytes. Typically 1 byte for standard
+      KCS implementations.
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - channel-index
+  - io-addr
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    espi_kcs0: espi-kcs@0 {
+        compatible = "axiado,ax3000-kcs-bmc";
+        reg = <0x0 0x10>;
+        interrupts = <0>;
+        interrupt-parent = <&mfd_espi>;
+        channel-index = <0>;
+        io-addr = <0xCA2>;
+        host-status-offset = <1>;
+        addr-size = <1>;
+        status = "okay";
+    };
+
+    espi_kcs1: espi-kcs@10 {
+        compatible = "axiado,ax3000-kcs-bmc";
+        reg = <0x10 0x10>;
+        interrupts = <1>;
+        interrupt-parent = <&mfd_espi>;
+        channel-index = <1>;
+        io-addr = <0xCA4>;
+        host-status-offset = <1>;
+        addr-size = <1>;
+        status = "disabled";
+    };
+
+    espi_kcs2: espi-kcs@20 {
+        compatible = "axiado,ax3000-kcs-bmc";
+        reg = <0x20 0x10>;
+        interrupts = <2>;
+        interrupt-parent = <&mfd_espi>;
+        channel-index = <2>;
+        io-addr = <0xCA6>;
+        host-status-offset = <1>;
+        addr-size = <1>;
+        status = "disabled";
+    };
+
+    espi_kcs3: espi-kcs@30 {
+        compatible = "axiado,ax3000-kcs-bmc";
+        reg = <0x30 0x10>;
+        interrupts = <3>;
+        interrupt-parent = <&mfd_espi>;
+        channel-index = <3>;
+        io-addr = <0xCA8>;
+        host-status-offset = <1>;
+        addr-size = <1>;
+        status = "disabled";
+    };
