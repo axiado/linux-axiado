@@ -613,6 +613,22 @@
 					dout-init = <0x00000000 0x00000000 0x00000000 0x00000000>;
 					status = "disabled";
 				};
+				mfd_espi: espi@c000 {
+					compatible = "axiado,ax3000-espi-regmap";
+					reg = <0xc000 0x1000>,
+						<0xd000 0x1000>,
+						<0xe000 0x1000>;
+					reg-names = "espi-core", "espi-perif", "espi-atu";
+					interrupt-parent = <&gpio6>;
+					interrupts = <19 IRQ_TYPE_LEVEL_HIGH>,   /* GPIO_211 eSPI core */
+						   <23 IRQ_TYPE_LEVEL_HIGH>;   /* GPIO_215 external logic */
+					interrupt-names = "espi-core-intr", "ext-logic-intr";
+					interrupt-controller;
+					#interrupt-cells = <1>;
+					#address-cells = <1>;
+					#size-cells = <1>;
+					status = "disabled";
+				};
 			};
 		};
 
