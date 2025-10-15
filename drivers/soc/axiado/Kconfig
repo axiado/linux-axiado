@@ -83,6 +83,21 @@ config AXIADO_SGPIO_REGMAP
 	  direct memory mapping if regmap is not available. This is useful
 	  when SGPIO is part of a larger MFD device with shared register space.
 
+config AXIADO_ESPI
+	tristate "Axiado eSPI Slave Controller support"
+	select REGMAP
+	select REGMAP_MMIO
+	select REGMAP_IRQ
+	help
+	  Enable support for the Axiado eSPI slave controller.
+
+	  The eSPI controller provides communication between the host and the BMC
+	  over the eSPI interface, supporting peripheral, virtual wire, out-of-band,
+	  and flash channels.
+
+	  The driver supports both MFD regmap mode and direct MMIO mode based on
+	  the device tree compatible string.
+
 endif # SOC_AXIADO
 
 endmenu
