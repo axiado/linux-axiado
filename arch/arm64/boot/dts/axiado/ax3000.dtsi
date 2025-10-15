@@ -628,6 +628,17 @@
 					#address-cells = <1>;
 					#size-cells = <1>;
 					status = "disabled";
+
+					espi_kcs0: espi-kcs@0 {
+						compatible = "axiado,ax3000-kcs-bmc";
+						reg = <0x0 0x10>;
+						interrupts = <0>; /* Virtual IRQ: bit 0 in external logic ISR */
+						interrupt-parent = <&mfd_espi>;
+						channel-index = <0>;
+						io-addr = <0xCA2>; /* IPMI 2.0: 0xCA2(data) + 0xCA3 (status) */
+						host-status-offset = <0x1>; /* 1-byte offset per IPMI 2.0 spec */
+						status = "disabled";
+					};
 				};
 			};
 		};
