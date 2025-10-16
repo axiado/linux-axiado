@@ -61,9 +61,13 @@ static void cdns_i2c_regmap_remove(struct platform_device *pdev)
 	cdns_i2c_remove_common(id);
 }
 
+static const struct cdns_platform_data ax3000_i2c_def = {
+	.quirks = CDNS_I2C_QUIRKS_ENABLE_SMBUS_QUICK_CFG,
+};
+
 static const struct of_device_id cdns_i2c_regmap_of_match[] = {
 	{ .compatible = "cdns,i2c-r1p14-regmap" },
-	{ .compatible = "axiado,ax3000-i2c" },
+	{ .compatible = "axiado,ax3000-i2c", .data = &ax3000_i2c_def },
 	{ /* end of table */ }
 };
 MODULE_DEVICE_TABLE(of, cdns_i2c_regmap_of_match);

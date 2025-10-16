@@ -130,7 +130,6 @@
 
 #define CDNS_I2C_TIMEOUT_MAX	0xFF
 
-#define CDNS_I2C_BROKEN_HOLD_BIT	BIT(0)
 #define CDNS_I2C_POLL_US	100000
 #define CDNS_I2C_TIMEOUT_US	500000
 
@@ -185,10 +184,6 @@ static inline int cdns_i2c_readl_poll_timeout(struct cdns_i2c *id, u32 offset,
 	readl_relaxed_poll_timeout(id->membase + offset, *(val), cond, poll_us, \
 				   timeout_us)
 #endif
-
-struct cdns_platform_data {
-	u32 quirks;
-};
 
 #define to_cdns_i2c(_nb)	container_of(_nb, struct cdns_i2c, \
 					     clk_rate_change_nb)
@@ -899,9 +894,14 @@ out:
  */
 static u32 cdns_i2c_func(struct i2c_adapter *adap)
 {
-	u32 func = I2C_FUNC_I2C | I2C_FUNC_10BIT_ADDR |
-			(I2C_FUNC_SMBUS_EMUL & ~I2C_FUNC_SMBUS_QUICK) |
-			I2C_FUNC_SMBUS_BLOCK_DATA;
+	u32 func = I2C_FUNC_I2C | I2C_FUNC_10BIT_ADDR;
+
+	if (i2c_check_quirks(adap, CDNS_I2C_QUIRKS_ENABLE_SMBUS_QUICK_CFG))
+		func |= I2C_FUNC_SMBUS_EMUL;
+	else
+		func |= (I2C_FUNC_SMBUS_EMUL & ~I2C_FUNC_SMBUS_QUICK);
+
+	func |= I2C_FUNC_SMBUS_BLOCK_DATA;
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	func |= I2C_FUNC_SLAVE;
@@ -1243,13 +1243,6 @@ static void cdns_i2c_detect_transfer_size(struct cdns_i2c *id)
 int cdns_i2c_probe_common(struct platform_device *pdev, struct cdns_i2c *id)
 {
 	int ret, irq;
-	const struct of_device_id *match;
-
-	match = of_match_node(cdns_i2c_of_match, pdev->dev.of_node);
-	if (match && match->data) {
-		const struct cdns_platform_data *data = match->data;
-		id->quirks = data->quirks;
-	}
 
 	id->rinfo.pinctrl = devm_pinctrl_get(&pdev->dev);
 	if (IS_ERR(id->rinfo.pinctrl)) {
@@ -1265,6 +1258,20 @@ int cdns_i2c_probe_common(struct platform_device *pdev, struct cdns_i2c *id)
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
+
+	/* Set quirks from match data */
+	const struct cdns_platform_data *data = device_get_match_data(&pdev->dev);
+
+	if (data) {
+		id->quirks = data->quirks;
+		/* Set adapter quirks for I2C framework */
+		struct i2c_adapter_quirks *adapter_quirks = devm_kzalloc(&pdev->dev,
+				sizeof(*adapter_quirks), GFP_KERNEL);
+		if (adapter_quirks) {
+			adapter_quirks->flags = data->quirks;
+			id->adap.quirks = adapter_quirks;
+		}
+	}
 
 	id->adap.owner = THIS_MODULE;
 	id->adap.dev.of_node = pdev->dev.of_node;
