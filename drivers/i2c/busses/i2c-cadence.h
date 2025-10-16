@@ -12,6 +12,13 @@
 #include <linux/regmap.h>
 #endif
 
+#define CDNS_I2C_BROKEN_HOLD_BIT	BIT(0)
+#define CDNS_I2C_QUIRKS_ENABLE_SMBUS_QUICK_CFG BIT(1)
+
+struct cdns_platform_data {
+	u32 quirks;
+};
+
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 /**
  * enum cdns_i2c_mode - I2C Controller current operating mode
