@@ -3462,6 +3462,16 @@ F:	Documentation/devicetree/bindings/mfd/axiado,spi-bridge.yaml
 F:	drivers/mfd/axiado-mfd-spi.c
 F:	include/linux/mfd/axiado-mfd.h
 
+AXIADO SGPIO CONTROLLER
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+M:	Swark Yang <syang@axiado.com>
+M:	Tzu-Hao Wei <twei@axiado.com>
+L:	linux-gpio@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/gpio/axiado,sgpio.yaml
+F:	drivers/soc/axiado/sgpio-axiado.c
+F:	drivers/soc/axiado/sgpio-axiado.h
+
 AXIADO USB DEVICE CONTROLLER DRIVER
 M:	Krutik Shah <axiado-1527@axiado.com>
 M:	Makarand Pawagi <mpawagi@axiado.com>
