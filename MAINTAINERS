@@ -3441,6 +3441,17 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/i2c/i2c-axxia.txt
 F:	drivers/i2c/busses/i2c-axxia.c
 
+AXIADO SPI DB DRIVER
+M:	Vladimir Moravcevic <vmoravcevic@axiado.com>
+M:	Tzu-Hao Wei <twei@axiado.com>
+M:	Swark Yang <syang@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-spi@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/spi/axiado,ax3000-spi.yaml
+F:	drivers/spi/spi-axiado.c
+F:	drivers/spi/spi-axiado.h
+
 AXIADO USB DEVICE CONTROLLER DRIVER
 M:	Krutik Shah <axiado-1527@axiado.com>
 M:	Makarand Pawagi <mpawagi@axiado.com>
