@@ -3431,6 +3431,16 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/i2c/i2c-axxia.txt
 F:	drivers/i2c/busses/i2c-axxia.c
 
+AXIADO USB DEVICE CONTROLLER DRIVER
+M:	Krutik Shah <axiado-1527@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-usb@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/usb/axiado,ax3000-udc.yaml
+F:	drivers/usb/gadget/udc/crg_udc.c
+F:	drivers/usb/gadget/udc/crg_udc.h
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
