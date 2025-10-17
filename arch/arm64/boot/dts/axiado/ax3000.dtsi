@@ -290,6 +290,23 @@
 				/* GPIO_212 LTPI-I2C Interrupt */
 				interrupts = <20 IRQ_TYPE_LEVEL_HIGH>;
 				status = "disabled";
+				mfd_i2c0: i2c-ssif@0 {
+					compatible = "axiado,xps-iic-slave";
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <0x0 0x800>;
+					clocks = <&refclk &clk_xin>;
+					#interrupt-cells = <2>;
+					interrupt-parent = <&gpio6>;
+					interrupts = <11 IRQ_TYPE_LEVEL_HIGH>; /* GPIO_203 I2C slave interrupt */
+					clock-frequency = <100000>;
+					status = "disabled";
+					ssif-bmc@10 {
+						compatible = "ssif-bmc";
+						reg = <0x10>;
+						status = "disabled";
+					};
+				};
 				mfd_i2c0_cdns: i2c@0 {
 					compatible = "axiado,ax3000-i2c";
 					#address-cells = <1>;

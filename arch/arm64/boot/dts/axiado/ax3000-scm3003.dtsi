@@ -77,4 +77,13 @@
 
 &spi2 {
 	status = "okay";
+	spi-bridge@0 {
+		status = "okay";
+		i2c-ssif@0 {
+			status = "okay";
+			ssif-bmc@10 {
+				status = "okay";
+			};
+		};
+	};
 };
