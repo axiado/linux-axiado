@@ -29,11 +29,17 @@
 #define CDNS_GPIO_IRQ_VALUE		0x28
 #define CDNS_GPIO_IRQ_ANY_EDGE		0x2c
 
+#define CDNS_GPIO_QUIRKS_SKIP_PINMUX_CFG	BIT(1)
+
 struct cdns_gpio_chip {
 	struct gpio_chip gc;
 	struct clk *pclk;
 	void __iomem *regs;
 	u32 bypass_orig;
+};
+
+struct cdns_platform_data {
+	u32 quirks;
 };
 
 static int cdns_gpio_request(struct gpio_chip *chip, unsigned int offset)
@@ -149,12 +155,24 @@ static const struct irq_chip cdns_gpio_irqchip = {
 	GPIOCHIP_IRQ_RESOURCE_HELPERS,
 };
 
+static const struct cdns_platform_data ax3000_gpio_def = {
+				.quirks = CDNS_GPIO_QUIRKS_SKIP_PINMUX_CFG, };
+
+static const struct of_device_id cdns_of_ids[] = {
+	{ .compatible = "axiado,ax3000-gpio", .data = &ax3000_gpio_def },
+	{ .compatible = "cdns,gpio-r1p02" },
+	{ /* sentinel */ },
+};
+MODULE_DEVICE_TABLE(of, cdns_of_ids);
+
 static int cdns_gpio_probe(struct platform_device *pdev)
 {
 	struct cdns_gpio_chip *cgpio;
 	int ret, irq;
 	u32 dir_prev;
 	u32 num_gpios = 32;
+	bool skip_pinmux_cfg = false;
+	const struct of_device_id *match;
 
 	cgpio = devm_kzalloc(&pdev->dev, sizeof(*cgpio), GFP_KERNEL);
 	if (!cgpio)
@@ -171,6 +189,13 @@ static int cdns_gpio_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
+	match = of_match_node(cdns_of_ids, pdev->dev.of_node);
+	if (match && match->data) {
+		const struct cdns_platform_data *data = match->data;
+
+		skip_pinmux_cfg = data->quirks & CDNS_GPIO_QUIRKS_SKIP_PINMUX_CFG;
+	}
+
 	/*
 	 * Set all pins as inputs by default, otherwise:
 	 * gpiochip_lock_as_irq:
@@ -179,8 +204,16 @@ static int cdns_gpio_probe(struct platform_device *pdev)
 	 * so it needs to be changed before bgpio_init() is called.
 	 */
 	dir_prev = ioread32(cgpio->regs + CDNS_GPIO_DIRECTION_MODE);
-	iowrite32(GENMASK(num_gpios - 1, 0),
-		  cgpio->regs + CDNS_GPIO_DIRECTION_MODE);
+
+	/*
+	 * In case of the Axiado AX3000 platform, the pinmux config happening
+	 * from system manager, for that reason do not write/change direction
+	 * or any other register here.
+	 */
+	if (!skip_pinmux_cfg) {
+		iowrite32(GENMASK(num_gpios - 1, 0),
+			  cgpio->regs + CDNS_GPIO_DIRECTION_MODE);
+	}
 
 	ret = bgpio_init(&cgpio->gc, &pdev->dev, 4,
 			 cgpio->regs + CDNS_GPIO_INPUT_VALUE,
@@ -252,9 +285,11 @@ static int cdns_gpio_probe(struct platform_device *pdev)
 	/*
 	 * Enable gpio outputs, ignored for input direction
 	 */
-	iowrite32(GENMASK(num_gpios - 1, 0),
-		  cgpio->regs + CDNS_GPIO_OUTPUT_EN);
-	iowrite32(0, cgpio->regs + CDNS_GPIO_BYPASS_MODE);
+	if (!skip_pinmux_cfg) {
+		iowrite32(GENMASK(num_gpios - 1, 0),
+			  cgpio->regs + CDNS_GPIO_OUTPUT_EN);
+		iowrite32(0, cgpio->regs + CDNS_GPIO_BYPASS_MODE);
+	}
 
 	platform_set_drvdata(pdev, cgpio);
 	return 0;
@@ -277,12 +312,6 @@ static int cdns_gpio_remove(struct platform_device *pdev)
 
 	return 0;
 }
-
-static const struct of_device_id cdns_of_ids[] = {
-	{ .compatible = "cdns,gpio-r1p02" },
-	{ /* sentinel */ },
-};
-MODULE_DEVICE_TABLE(of, cdns_of_ids);
 
 static struct platform_driver cdns_gpio_driver = {
 	.driver = {
