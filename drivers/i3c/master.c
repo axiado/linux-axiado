@@ -2323,7 +2323,7 @@ static int i3c_master_i2c_adapter_xfer(struct i2c_adapter *adap,
 {
 	struct i3c_master_controller *master = i2c_adapter_to_i3c_master(adap);
 	struct i2c_dev_desc *dev;
-	int i, ret;
+	int i, ret, provisional;
 	u16 addr;
 
 	if (!xfers || !master || nxfers <= 0)
@@ -2341,10 +2341,32 @@ static int i3c_master_i2c_adapter_xfer(struct i2c_adapter *adap,
 
 	i3c_bus_normaluse_lock(&master->bus);
 	dev = i3c_master_find_i2c_dev_by_addr(master, addr);
-	if (!dev)
-		ret = -ENOENT;
-	else
-		ret = master->ops->i2c_xfers(dev, xfers, nxfers);
+	provisional = !dev;
+	if (!dev) {
+		u8 lvr = i3c_master_i2c_get_lvr(NULL);
+		dev = i3c_master_alloc_i2c_dev(master, addr, lvr);
+		if (!dev) {
+			ret = -ENOMEM;
+			goto out_unlock;
+		}
+
+		ret = i3c_master_attach_i2c_dev(master, dev);
+		if (ret) {
+			dev_dbg(dev, "Attaching device to %s failed with status: %d\n",
+				master->dev.name, ret);
+			i3c_master_free_i2c_dev(dev);
+			goto out_unlock;
+		}
+	}
+
+	ret = master->ops->i2c_xfers(dev, xfers, nxfers);
+	if (ret < 0 && provisional) {
+		dev_dbg(dev, "No ACK from device; status: %d\n", ret);
+		i3c_master_detach_i2c_dev(dev);
+		i3c_master_free_i2c_dev(dev);
+	}
+
+out_unlock:
 	i3c_bus_normaluse_unlock(&master->bus);
 
 	return ret ? ret : nxfers;
@@ -2360,7 +2382,7 @@ static u8 i3c_master_i2c_get_lvr(struct i2c_client *client)
 	/* Fall back to no spike filters and FM bus mode. */
 	u8 lvr = I3C_LVR_I2C_INDEX(2) | I3C_LVR_I2C_FM_MODE;
 
-	if (client->dev.of_node) {
+	if (client && client->dev.of_node) {
 		u32 reg[3];
 
 		if (!of_property_read_u32_array(client->dev.of_node, "reg",
