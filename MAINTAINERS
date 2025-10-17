@@ -3452,6 +3452,16 @@ F:	Documentation/devicetree/bindings/spi/axiado,ax3000-spi.yaml
 F:	drivers/spi/spi-axiado.c
 F:	drivers/spi/spi-axiado.h
 
+AXIADO SPI BRIDGE MFD DRIVER
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+M:	Swark Yang <syang@axiado.com>
+M:	Tzu-Hao Wei <twei@axiado.com>
+L:	linux-spi@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/mfd/axiado,spi-bridge.yaml
+F:	drivers/mfd/axiado-mfd-spi.c
+F:	include/linux/mfd/axiado-mfd.h
+
 AXIADO USB DEVICE CONTROLLER DRIVER
 M:	Krutik Shah <axiado-1527@axiado.com>
 M:	Makarand Pawagi <mpawagi@axiado.com>
