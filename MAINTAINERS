@@ -3472,6 +3472,17 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/i2c/i2c-axxia.txt
 F:	drivers/i2c/busses/i2c-axxia.c
 
+AXIADO XIIC I2C SLAVE DRIVER
+M: Petar Stepanovic <pstepanovic@axiado.com>
+M: Tzu-Hao Wei <twei@axiado.com>
+M: Swark Yang <syang@axiado.com>
+M: Prasad Bolisetty <pbolisetty@axiado.com>
+L: linux-i2c@vger.kernel.org
+S: Maintained
+F: Documentation/devicetree/bindings/i2c/axiado,xps-iic-slave.yaml
+F: drivers/i2c/busses/i2c-axiado-xiic.c
+F: drivers/i2c/busses/i2c-xiic-common.h
+
 AXIADO SPI DB DRIVER
 M:	Vladimir Moravcevic <vmoravcevic@axiado.com>
 M:	Tzu-Hao Wei <twei@axiado.com>
