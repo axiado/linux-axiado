@@ -2318,6 +2318,22 @@ static int of_populate_i3c_bus(struct i3c_master_controller *master)
 	return 0;
 }
 
+static u8 i3c_master_i2c_get_lvr(struct i2c_client *client)
+{
+	/* Fall back to no spike filters and FM bus mode. */
+	u8 lvr = I3C_LVR_I2C_INDEX(2) | I3C_LVR_I2C_FM_MODE;
+
+	if (client && client->dev.of_node) {
+		u32 reg[3];
+
+		if (!of_property_read_u32_array(client->dev.of_node, "reg",
+						reg, ARRAY_SIZE(reg)))
+			lvr = reg[2];
+	}
+
+	return lvr;
+}
+
 static int i3c_master_i2c_adapter_xfer(struct i2c_adapter *adap,
 				       struct i2c_msg *xfers, int nxfers)
 {
@@ -2352,8 +2368,8 @@ static int i3c_master_i2c_adapter_xfer(struct i2c_adapter *adap,
 
 		ret = i3c_master_attach_i2c_dev(master, dev);
 		if (ret) {
-			dev_dbg(dev, "Attaching device to %s failed with status: %d\n",
-				master->dev.name, ret);
+			pr_debug("Attaching device to %s failed with status: %d\n",
+				dev_name(&master->dev), ret);
 			i3c_master_free_i2c_dev(dev);
 			goto out_unlock;
 		}
@@ -2361,7 +2377,7 @@ static int i3c_master_i2c_adapter_xfer(struct i2c_adapter *adap,
 
 	ret = master->ops->i2c_xfers(dev, xfers, nxfers);
 	if (ret < 0 && provisional) {
-		dev_dbg(dev, "No ACK from device; status: %d\n", ret);
+		pr_debug("No ACK from device; status: %d\n", ret);
 		i3c_master_detach_i2c_dev(dev);
 		i3c_master_free_i2c_dev(dev);
 	}
@@ -2375,22 +2391,6 @@ out_unlock:
 static u32 i3c_master_i2c_funcs(struct i2c_adapter *adapter)
 {
 	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C;
-}
-
-static u8 i3c_master_i2c_get_lvr(struct i2c_client *client)
-{
-	/* Fall back to no spike filters and FM bus mode. */
-	u8 lvr = I3C_LVR_I2C_INDEX(2) | I3C_LVR_I2C_FM_MODE;
-
-	if (client && client->dev.of_node) {
-		u32 reg[3];
-
-		if (!of_property_read_u32_array(client->dev.of_node, "reg",
-						reg, ARRAY_SIZE(reg)))
-			lvr = reg[2];
-	}
-
-	return lvr;
 }
 
 static int i3c_master_i2c_attach(struct i2c_adapter *adap, struct i2c_client *client)
