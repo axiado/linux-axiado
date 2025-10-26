@@ -8,6 +8,15 @@
 
 / {
 	model = "Axiado AX3000-SCM3003";
+	iio-hwmon {
+		compatible = "iio-hwmon";
+		io-channels = <&saradc 0>, <&saradc 1>, <&saradc 2>,
+			      <&saradc 3>, <&saradc 4>, <&saradc 5>,
+			      <&saradc 6>, <&saradc 7>, <&saradc 8>,
+			      <&saradc 9>, <&saradc 10>, <&saradc 11>,
+			      <&saradc 12>, <&saradc 13>, <&saradc 14>,
+			      <&saradc 15>;
+	};
 };
 
 /* GPIO bank 0 - 7 */
@@ -86,4 +95,8 @@
 			};
 		};
 	};
+};
+
+&saradc {
+	status = "okay";
 };
