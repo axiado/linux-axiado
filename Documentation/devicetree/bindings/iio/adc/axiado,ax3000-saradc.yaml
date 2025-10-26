@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/iio/adc/axiado,ax3000-saradc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: AXIADO AX3000 SARADC
+
+maintainers:
+  - Krishnakumar Kesavan <kkesavan@axiado.com>
+  - Akhila Kavi <akavi@axiado.com>
+  - Makarand Pawagi <mpawagi@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+properties:
+  compatible:
+    oneOf:
+      - items:
+          - const: axiado,ax3000-saradc
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    items:
+      - const: refclk   # Reference clock
+
+  '#io-channel-cells':
+    const: 1
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - '#io-channel-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    saradc: saradc@806A0000 {
+      compatible = "axiado,ax3000-saradc";
+      reg = <0x00 0x806A0000 0x00 0x400>;
+      interrupts = <0 166 1>;
+      clocks = <&refclk>;
+      clock-names = "refclk";
+      #io-channel-cells = <1>;
+      status = "disabled";
+      };
