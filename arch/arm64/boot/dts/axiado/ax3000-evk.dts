@@ -258,3 +258,7 @@
 &fan15 {
 	status = "okay";
 };
+
+&saradc {
+	status = "okay";
+};
