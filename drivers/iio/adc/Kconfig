@@ -345,6 +345,16 @@ config AT91_SAMA5D2_ADC
 	  To compile this driver as a module, choose M here: the module will be
 	  called at91-sama5d2_adc.
 
+config AXIADO_SARADC
+	tristate "AXIADO SARADC driver"
+	depends on OF
+	help
+	  Say yes here to build support for the 16-channel SARADC found in
+	  Axiado's AX3000 SoC family.
+
+	  This driver provides analog voltage measurement capabilities
+	  with 10-bit resolution and 1.1V reference voltage.
+
 config AXP20X_ADC
 	tristate "X-Powers AXP20X and AXP22X ADC driver"
 	depends on MFD_AXP20X
