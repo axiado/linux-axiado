@@ -1261,6 +1261,18 @@
 			pwms = <&pwm15 0 400>;
 			status = "disabled";
 		};
+
+		saradc: saradc@806A0000 {
+			compatible = "axiado,ax3000-saradc";
+			reg = <0x00 0x806A0000 0x00 0x400>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 166 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&refclk>;
+			clock-names = "refclk";
+			#io-channel-cells = <1>;
+			status = "disabled";
+		};
+
 	};
 
 	timer {
