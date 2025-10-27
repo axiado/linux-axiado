@@ -3554,6 +3554,18 @@ F:	Documentation/devicetree/bindings/ltpi/axiado,ltpi-gpio.yaml
 F:	drivers/soc/axiado/ltpi-axiado.c
 F:	drivers/soc/axiado/ltpi-axiado.h
 
+AXIADO PCIE CONTROLLER DRIVER
+M:	Shubhangini G <shubhangini@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-pci@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/pci/axiado,ax3000-pcie.yaml
+F:	drivers/pci/controller/axiado_pciecfg.c
+F:	drivers/pci/controller/pcie-axiado.c
+F:	drivers/pci/controller/pcie-axiado.h
+F:	include/linux/soc/axiado/
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
