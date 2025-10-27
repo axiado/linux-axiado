@@ -3437,6 +3437,16 @@ F:	drivers/usb/gadget/Kconfig
 F:	drivers/usb/gadget/function/f_hid_axiado.c
 F:	include/linux/hid.h
 
+AXIADO DRM DRIVER
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+M:	SriNavmani A <axiado-1506@axiado.com>
+L:	linux-phy@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	Documentation/devicetree/bindings/display/axiado/axiado,display-subsystem.yaml
+F:	drivers/gpu/drm/axiado/Kconfig
+F:	drivers/gpu/drm/axiado/axiado_drm_drv.c
+
 AXIADO EMMC PHY DRIVER
 M:	Makarand Pawagi <mpawagi@axiado.com>
 M:	SriNavmani A <Axiado-1506@axiado.com>
