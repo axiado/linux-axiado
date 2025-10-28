@@ -15,3 +15,19 @@ config DRM_AXIADO
 	  framework, say Y or M here.
 
 	  If unsure, say N.
+
+config AXIADO_HDMI
+	bool "Axiado specific extensions HDMI"
+	depends on DRM
+	depends on DRM_AXIADO
+	select DRM_GEM_CMA_HELPER
+	select DRM_KMS_HELPER
+	select DRM_KMS_CMA_HELPER
+	select VIDEOMODE_HELPERS
+	help
+	  Choose this option to enable support for the Axiado AX3000
+	  HDMI driver. If you want to use the AX3000 SoC integrated HDMI or related
+	  display controllers under the Direct Rendering Manager (DRM)
+	  framework, say Y or M here.
+
+	  If unsure, say N.
