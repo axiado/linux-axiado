@@ -3566,6 +3566,16 @@ F:	drivers/pci/controller/pcie-axiado.c
 F:	drivers/pci/controller/pcie-axiado.h
 F:	include/linux/soc/axiado/
 
+AXIADO VIDEO DRIVER
+M:	Shubhangini G <shubhangini@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-media@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/media/axiado,ax3000-video.yaml
+F:	drivers/media/platform/axiado/axiado-video.c
+F:	drivers/media/platform/axiado/axiado-video.h
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
