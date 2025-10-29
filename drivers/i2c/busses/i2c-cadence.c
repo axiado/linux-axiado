@@ -160,22 +160,21 @@ static inline void cdns_i2c_write_regmap(struct cdns_i2c *id, u32 val,
 			writel_relaxed(val, id->membase + offset); \
 	} while (0)
 /* Regmap-based polling function */
-static inline int cdns_i2c_readl_poll_timeout(struct cdns_i2c *id, u32 offset,
-					      u32 *val, u32 cond, u32 poll_us,
-					      u32 timeout_us)
-{
-	if (id->regmap) {
-		return regmap_read_poll_timeout(id->regmap,
-						id->regmap_base_offset + offset,
-						*val, cond, poll_us,
-						timeout_us);
-	} else if (id->membase) {
-		return readl_relaxed_poll_timeout(id->membase + offset, *val,
-						  cond, poll_us, timeout_us);
-	} else {
-		return -EINVAL;
-	}
-}
+#define cdns_i2c_readl_poll_timeout(id, offset, val, cond, poll_us, timeout_us) \
+({ \
+	int __ret; \
+	if ((id)->regmap) { \
+		__ret = regmap_read_poll_timeout((id)->regmap, \
+					(id)->regmap_base_offset + (offset), \
+					*(val), cond, poll_us, timeout_us); \
+	} else if ((id)->membase) { \
+		__ret = readl_relaxed_poll_timeout((id)->membase + (offset), \
+					*(val), cond, poll_us, timeout_us); \
+	} else { \
+		__ret = -EINVAL; \
+	} \
+	__ret; \
+})
 #else
 #define cdns_i2c_readreg(offset) readl_relaxed(id->membase + offset)
 #define cdns_i2c_writereg(val, offset) writel_relaxed(val, id->membase + offset)
