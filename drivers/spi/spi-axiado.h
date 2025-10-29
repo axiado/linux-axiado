@@ -2,7 +2,7 @@
 /*
  * Axiado SPI controller driver (Host mode only)
  *
- * Copyright (C) 2022-2025 Axiado Corporation (or its affiliates). All rights reserved.
+ * Copyright (C) 2022-2025 Axiado Corporation (or its affiliates).
  */
 
 #ifndef SPI_AXIADO_H

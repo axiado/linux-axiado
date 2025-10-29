@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/*
- * Axiado SPI controller driver (Host mode only)
- *
- * Copyright (C) 2022-2025 Axiado Corporation (or its affiliates). All rights reserved.
- *
- */
+//
+// Axiado SPI controller driver (Host mode only)
+//
+// Copyright (C) 2022-2025 Axiado Corporation (or its affiliates).
+//
+
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
@@ -211,6 +211,7 @@ static void ax_spi_fill_tx_fifo(struct ax_spi *xspi)
 		trans_cnt++;
 	}
 }
+
 /**
  * ax_spi_get_rx_byte - Gets a byte from the RX FIFO buffer
  * @xspi: Controller private data (struct ax_spi *)
@@ -244,7 +245,7 @@ static u8 ax_spi_get_rx_byte_for_irq(struct ax_spi *xspi)
 	return byte_val;
 }
 
-/*
+/**
  * Helper function to process received bytes and check for transfer completion.
  * This avoids code duplication and centralizes the completion logic.
  * Returns true if the transfer was finalized.
@@ -256,7 +257,7 @@ static bool ax_spi_process_rx_and_finalize(struct spi_controller *ctlr)
 	/* Process any remaining bytes in the RX FIFO */
 	u32 avail_bytes = ax_spi_read(xspi, AX_SPI_RX_FBCAR);
 
-	// This loop handles bytes that are already staged from a previous word read
+	/* This loop handles bytes that are already staged from a previous word read */
 	while (xspi->bytes_left_in_current_rx_word_for_irq &&
 	       (xspi->rx_copy_remaining || xspi->rx_discard)) {
 		u8 b = ax_spi_get_rx_byte_for_irq(xspi);
@@ -269,9 +270,9 @@ static bool ax_spi_process_rx_and_finalize(struct spi_controller *ctlr)
 		}
 	}
 
-	// This loop processes new words directly from the FIFO
+	/* This loop processes new words directly from the FIFO */
 	while (avail_bytes >= 4 && (xspi->rx_copy_remaining || xspi->rx_discard)) {
-		// This function should handle reading from the FIFO
+		/* This function should handle reading from the FIFO */
 		u8 b = ax_spi_get_rx_byte_for_irq(xspi);
 
 		if (xspi->rx_discard) {
@@ -280,19 +281,18 @@ static bool ax_spi_process_rx_and_finalize(struct spi_controller *ctlr)
 			*xspi->rx_buf++ = b;
 			xspi->rx_copy_remaining--;
 		}
-		// ax_spi_get_rx_byte_for_irq fetches a new word when needed
-		// and updates internal state.
+		/* ax_spi_get_rx_byte_for_irq fetches a new word when needed
+		 * and updates internal state.
+		 */
 		if (xspi->bytes_left_in_current_rx_word_for_irq == 3)
 			avail_bytes -= 4;
 	}
 
-	/*
-	 * Completion Check: The transfer is truly complete if all expected
+	/* Completion Check: The transfer is truly complete if all expected
 	 * RX bytes have been copied or discarded.
 	 */
 	if (xspi->rx_copy_remaining == 0 && xspi->rx_discard == 0) {
-		/*
-		 * Defensive drain: If for some reason there are leftover bytes
+		/* Defensive drain: If for some reason there are leftover bytes
 		 * in the HW FIFO after we've logically finished,
 		 * read and discard them to prevent them from corrupting the next transfer.
 		 * This should be a bounded operation.
@@ -300,9 +300,9 @@ static bool ax_spi_process_rx_and_finalize(struct spi_controller *ctlr)
 		int safety_words = AX_SPI_RX_FIFO_DRAIN_LIMIT; // Limit to avoid getting stuck
 
 		while (ax_spi_read(xspi, AX_SPI_RX_FBCAR) > 0 && safety_words-- > 0)
-			(void)ax_spi_read(xspi, AX_SPI_RXFIFO);
+			ax_spi_read(xspi, AX_SPI_RXFIFO);
 
-		// Disable all interrupts for this transfer and finalize.
+		/* Disable all interrupts for this transfer and finalize. */
 		ax_spi_write(xspi, AX_SPI_IMR, 0x00);
 		spi_finalize_current_transfer(ctlr);
 		return true;
@@ -328,48 +328,46 @@ static irqreturn_t ax_spi_irq(int irq, void *dev_id)
 {
 	struct spi_controller *ctlr = dev_id;
 	struct ax_spi *xspi = spi_controller_get_devdata(ctlr);
-	irqreturn_t status;
 	u32 intr_status;
 
-	status = IRQ_NONE;
 	intr_status = ax_spi_read(xspi, AX_SPI_IVR);
 	if (!intr_status)
 		return IRQ_NONE;
 
-	/*
-	 * Handle "Message Transfer Complete" interrupt.
+	/* Handle "Message Transfer Complete" interrupt.
 	 * This means all bytes have been shifted out of the TX FIFO.
 	 * It's time to harvest the final incoming bytes from the RX FIFO.
 	 */
 	if (intr_status & AX_SPI_IVR_MTCV) {
-		// Clear the MTC interrupt flag immediately.
+		/* Clear the MTC interrupt flag immediately. */
 		ax_spi_write(xspi, AX_SPI_ISR, AX_SPI_ISR_MTC);
 
-		// For a TX-only transfer, rx_buf would be NULL.
-		// In the spi-core, rx_copy_remaining would be 0.
-		// So we can finalize immediately.
+		/* For a TX-only transfer, rx_buf would be NULL.
+		 * In the spi-core, rx_copy_remaining would be 0.
+		 * So we can finalize immediately.
+		 */
 		if (!xspi->rx_buf) {
 			ax_spi_write(xspi, AX_SPI_IMR, 0x00);
 			spi_finalize_current_transfer(ctlr);
 			return IRQ_HANDLED;
 		}
-
-		// For a full-duplex transfer, process any remaining RX data.
-		// The helper function will handle finalization if everything is received.
+		/* For a full-duplex transfer, process any remaining RX data.
+		 * The helper function will handle finalization if everything is received.
+		 */
 		ax_spi_process_rx_and_finalize(ctlr);
 		return IRQ_HANDLED;
 	}
 
-	/*
-	 * Handle "RX FIFO Full / Threshold Met" interrupt.
+	/* Handle "RX FIFO Full / Threshold Met" interrupt.
 	 * This means we need to make space in the RX FIFO by reading from it.
 	 */
 	if (intr_status & AX_SPI_IVR_RFFV) {
 		if (ax_spi_process_rx_and_finalize(ctlr)) {
-			// Transfer was finalized inside the helper, we are done.
+			/* Transfer was finalized inside the helper, we are done. */
 		} else {
-			// RX is not yet complete. If there are still TX bytes to send
-			// (for very long transfers), we can fill the TX FIFO again.
+			/* RX is not yet complete. If there are still TX bytes to send
+			 * (for very long transfers), we can fill the TX FIFO again.
+			 */
 			if (xspi->tx_bytes)
 				ax_spi_fill_tx_fifo(xspi);
 		}
@@ -405,15 +403,14 @@ static int ax_transfer_one(struct spi_controller *ctlr,
 	struct ax_spi *xspi = spi_controller_get_devdata(ctlr);
 	int drain_limit;
 
-	/*
-	 * Pre-transfer cleanup:Flush the RX FIFO to discard any stale data.
+	/* Pre-transfer cleanup:Flush the RX FIFO to discard any stale data.
 	 * This is the crucial part. Before every new transfer, we must ensure
 	 * the HW is in a clean state to avoid processing stale data
 	 * from a previous, possibly failed or interrupted, transfer.
 	 */
 	drain_limit = AX_SPI_RX_FIFO_DRAIN_LIMIT; // Sane limit to prevent infinite loop on HW error
 	while (ax_spi_read(xspi, AX_SPI_RX_FBCAR) > 0 && drain_limit-- > 0)
-		(void)ax_spi_read(xspi, AX_SPI_RXFIFO); // Read and discard
+		ax_spi_read(xspi, AX_SPI_RXFIFO); // Read and discard
 
 	if (drain_limit <= 0)
 		dev_warn(&ctlr->dev, "RX FIFO drain timeout before transfer\n");
@@ -449,8 +446,6 @@ static int ax_transfer_one(struct spi_controller *ctlr,
 	ax_spi_setup_transfer(spi, transfer);
 	ax_spi_fill_tx_fifo(xspi);
 	ax_spi_write(xspi, AX_SPI_CR2, (AX_SPI_CR2_HTE | AX_SPI_CR2_SRD | AX_SPI_CR2_SWD));
-
-	spi_transfer_delay_exec(transfer);
 
 	ax_spi_write(xspi, AX_SPI_IMR, (AX_SPI_IMR_MTCM | AX_SPI_IMR_RFFM));
 	return transfer->len;
@@ -658,7 +653,7 @@ static int ax_spi_mem_exec_op(struct spi_mem *mem, const struct spi_mem_op *op)
 			rx_count_reg = ax_spi_read(xspi, AX_SPI_RX_FBCAR);
 			if (rx_count_reg >= op->data.nbytes)
 				break;
-			udelay(1); // Small delay to prevent aggressive busy-waiting
+			udelay(1); /* Small delay to prevent aggressive busy-waiting */
 		}
 
 		if (timeout < 0) {
@@ -713,7 +708,7 @@ static int ax_spi_mem_adjust_op_size(struct spi_mem *mem, struct spi_mem_op *op)
 	/* Calculate protocol overhead bytes according to the real operation each time. */
 	protocol_overhead_bytes = op->cmd.nbytes + op->addr.nbytes + op->dummy.nbytes;
 
-	/*Calculate the maximum data payload that can fit into the FIFO. */
+	/* Calculate the maximum data payload that can fit into the FIFO. */
 	if (fifo_total_bytes <= protocol_overhead_bytes) {
 		max_transfer_payload_bytes = 0;
 		dev_warn_once(&spi->dev, "SPI FIFO (%zu bytes) is too small for protocol overhead (%zu bytes)! Max data size forced to 0.\n",
