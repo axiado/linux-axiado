@@ -1303,8 +1303,11 @@ static int cdns_i3c_master_bus_init(struct i3c_master_controller *m)
 	 * MIPI I3C Specification 1.0 defines non-zero minimal tHD_PP timing on
 	 * master output. This setting allows to meet this timing on master's
 	 * SoC outputs, regardless of PCB balancing.
+	 *
+	 * Fix: Cast to unsigned int to prevent sign extension during bit shift
 	 */
-	ctrl |= CTRL_THD_DELAY(cdns_i3c_master_calculate_thd_delay(master));
+	ctrl |= CTRL_THD_DELAY(
+		(u32)cdns_i3c_master_calculate_thd_delay(master));
 	writel(ctrl, master->regs + CTRL);
 
 	cdns_i3c_master_enable(master);
