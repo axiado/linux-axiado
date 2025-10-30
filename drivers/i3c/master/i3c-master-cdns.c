@@ -10,6 +10,7 @@
  * - disable-ibir: Disable IBIR handling
  * - disable-ibir-error: Disable IBIR error
  * - disable-ctrl-halt: Disable CTRL HALT handling
+ * - disable-mst-abort: Disable MST ABORT handling
  * work done by:
  *  Copyright (C) 2024-2025 Axiado Corporation.
  *
@@ -380,6 +381,7 @@
 #define CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING BIT(2)
 #define CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR BIT(3)
 #define CDNS_I3C_QUIRKS_DISABLE_CTRL_HALT BIT(4)
+#define CDNS_I3C_QUIRKS_DISABLE_MST_ABORT BIT(5)
 
 struct cdns_i3c_master_caps {
 	u32 cmdfifodepth;
@@ -628,10 +630,25 @@ static void cdns_i3c_master_end_xfer_locked(struct cdns_i3c_master *master,
 		case CMDR_M0_ERROR:
 		case CMDR_M1_ERROR:
 		case CMDR_M2_ERROR:
-		case CMDR_MST_ABORT:
 		case CMDR_NACK_RESP:
 		case CMDR_DDR_DROPPED:
 			ret = -EIO;
+			break;
+
+		case CMDR_MST_ABORT:
+			/*
+			 * QUIRK: When initializing an IBIR-capable device
+			 * (e.g., Renesas I3C HUB) on the AX3000-i3c host,
+			 * a spurious CMDR_MST_ABORT event is triggered.
+			 *
+			 * This abort appears to be a benign side-effect of
+			 * the probing process on this controller. Ignore the
+			 * event to allow initialization to succeed, as returning
+			 * -EIO would cause the hub to fail enumeration.
+			 */
+			if (!(master->quirks &
+			      CDNS_I3C_QUIRKS_DISABLE_MST_ABORT))
+				ret = -EIO;
 			break;
 
 		case CMDR_DDR_RX_FIFO_OVF:
@@ -1688,6 +1705,9 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 
 	if (of_property_read_bool(pdev->dev.of_node, "disable-ctrl-halt"))
 		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_CTRL_HALT;
+
+	if (of_property_read_bool(pdev->dev.of_node, "disable-mst-abort"))
+		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_MST_ABORT;
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
