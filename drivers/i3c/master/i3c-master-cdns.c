@@ -3,6 +3,12 @@
  * Copyright (C) 2018 Cadence Design Systems Inc.
  *
  * Author: Boris Brezillon <boris.brezillon@bootlin.com>
+ *
+ * Supported quirks:
+ * - disable-warn-on-invalid-id: Disable warning on invalid ID
+ * work done by:
+ *  Copyright (C) 2024-2025 Axiado Corporation.
+ *
  */
 
 #include <linux/bitops.h>
@@ -365,6 +371,8 @@
 #define ASF_PROTO_FAULT_MSTDDR_FAIL	BIT(14)
 #define ASF_PROTO_FAULT_M(x)		BIT(x)
 
+#define CDNS_I3C_QUIRKS_DISABLE_WARN_ON_INVALID_ID BIT(0)
+
 struct cdns_i3c_master_caps {
 	u32 cmdfifodepth;
 	u32 cmdrfifodepth;
@@ -393,6 +401,7 @@ struct cdns_i3c_xfer {
 
 struct cdns_i3c_data {
 	u8 thd_delay_ns;
+	u32 quirks;
 };
 
 struct cdns_i3c_master {
@@ -416,6 +425,7 @@ struct cdns_i3c_master {
 	struct cdns_i3c_master_caps caps;
 	unsigned long i3c_scl_lim;
 	const struct cdns_i3c_data *devdata;
+	u32 quirks;
 };
 
 static inline struct cdns_i3c_master *
@@ -579,8 +589,20 @@ static void cdns_i3c_master_end_xfer_locked(struct cdns_i3c_master *master,
 		id = CMDR_CMDID(cmdr);
 		if (id == CMDR_CMDID_HJACK_DISEC ||
 		    id == CMDR_CMDID_HJACK_ENTDAA ||
-		    WARN_ON(id >= xfer->ncmds))
+			id >= xfer->ncmds) {
+			/*
+			 * QUIRK: The AX3000-i3c controller occasionally reports an
+			 * invalid (out-of-bounds) command ID when some I2C devices
+			 * are present on the bus.
+			 * This would normally trigger a WARN_ON(). Suppress this
+			 * warning for this controller to avoid log spam.
+			 */
+			if (id >= xfer->ncmds &&
+			    !(master->quirks &
+			      CDNS_I3C_QUIRKS_DISABLE_WARN_ON_INVALID_ID))
+				WARN_ON(1);
 			continue;
+		}
 
 		cmd = &xfer->cmds[CMDR_CMDID(cmdr)];
 		rx_len = min_t(u32, CMDR_XFER_BYTES(cmdr), cmd->rx_len);
@@ -1569,10 +1591,17 @@ static void cdns_i3c_master_hj(struct work_struct *work)
 
 static struct cdns_i3c_data cdns_i3c_devdata = {
 	.thd_delay_ns = 10,
+	.quirks = 0,
+};
+
+static const struct cdns_i3c_data ax3000_i3c_def = {
+	.thd_delay_ns = 10,
+	.quirks = CDNS_I3C_QUIRKS_DISABLE_WARN_ON_INVALID_ID,
 };
 
 static const struct of_device_id cdns_i3c_master_of_ids[] = {
 	{ .compatible = "cdns,i3c-master", .data = &cdns_i3c_devdata },
+	{ .compatible = "axiado,ax3000-i3c", .data = &ax3000_i3c_def },
 	{ /* sentinel */ },
 };
 
@@ -1589,6 +1618,8 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 	master->devdata = of_device_get_match_data(&pdev->dev);
 	if (!master->devdata)
 		return -EINVAL;
+
+	master->quirks = master->devdata->quirks;
 
 	master->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(master->regs))
