@@ -130,7 +130,14 @@
 			clock-frequency = <25000000>;
 		};
 
-		clk_pclk: clk_pclk {
+		clk_disp: clock-500000000 {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <500000000>; /* 500MHz Clock half of CPU clock*/
+			clock-output-names = "clk_disp";
+		};
+
+		clk_pclk: clock-74250000 {
 			compatible = "fixed-clock";
 			#clock-cells = <0>;
 			clock-frequency = <74250000>;
@@ -1402,6 +1409,16 @@
 		video: video {
 			compatible = "axiado,ax3000-video";
 			memory-region = <&pci_ep_disp>;
+		};
+
+		hdmi: hdmi@80C11000 {
+			compatible ="axiado,ax3000-hdmi";
+			reg = <0x00 0x80C11000 0x00 0x4000>;
+			memory-region = <&pci_ep_disp>;
+			interrupts = <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH>;
+			clocks =  <&clk_disp>, <&clk_pclk>;
+			clock-names = "clk_disp", "clk_pclk";
+			status = "disabled";
 		};
 	};
 
