@@ -9,6 +9,7 @@
  * - enable-repeated-start: Enable repeated start
  * - disable-ibir: Disable IBIR handling
  * - disable-ibir-error: Disable IBIR error
+ * - disable-ctrl-halt: Disable CTRL HALT handling
  * work done by:
  *  Copyright (C) 2024-2025 Axiado Corporation.
  *
@@ -378,6 +379,7 @@
 #define CDNS_I3C_QUIRKS_ENABLE_REPEATED_START BIT(1)
 #define CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING BIT(2)
 #define CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR BIT(3)
+#define CDNS_I3C_QUIRKS_DISABLE_CTRL_HALT BIT(4)
 
 struct cdns_i3c_master_caps {
 	u32 cmdfifodepth;
@@ -1336,7 +1338,17 @@ static int cdns_i3c_master_bus_init(struct i3c_master_controller *m)
 	 *
 	 * We will issue ENTDAA afterwards from the threaded IRQ handler.
 	 */
-	ctrl |= CTRL_HJ_ACK | CTRL_HJ_DISEC | CTRL_HALT_EN | CTRL_MCS_EN;
+	ctrl |= CTRL_HJ_ACK | CTRL_HJ_DISEC | CTRL_MCS_EN;
+	/*
+	 * QUIRK: When an I3C hub (e.g., Renesas) that supports
+	 * IBIR handling is connected to the AX3000-i3c host
+	 * (which does not support IBIR), a controller halt
+	 * error can be triggered.
+	 * To prevent this halt state, disable the CTRL_HALT_EN
+	 * feature for this controller.
+	 */
+	if (!(master->quirks & CDNS_I3C_QUIRKS_DISABLE_CTRL_HALT))
+		ctrl |= CTRL_HALT_EN;
 
 	/*
 	 * Configure data hold delay based on device-specific data.
@@ -1673,6 +1685,9 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 
 	if (of_property_read_bool(pdev->dev.of_node, "disable-ibir-error"))
 		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR;
+
+	if (of_property_read_bool(pdev->dev.of_node, "disable-ctrl-halt"))
+		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_CTRL_HALT;
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
