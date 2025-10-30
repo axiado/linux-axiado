@@ -6,6 +6,7 @@
  *
  * Supported quirks:
  * - disable-warn-on-invalid-id: Disable warning on invalid ID
+ * - enable-repeated-start: Enable repeated start
  * work done by:
  *  Copyright (C) 2024-2025 Axiado Corporation.
  *
@@ -372,6 +373,7 @@
 #define ASF_PROTO_FAULT_M(x)		BIT(x)
 
 #define CDNS_I3C_QUIRKS_DISABLE_WARN_ON_INVALID_ID BIT(0)
+#define CDNS_I3C_QUIRKS_ENABLE_REPEATED_START BIT(1)
 
 struct cdns_i3c_master_caps {
 	u32 cmdfifodepth;
@@ -882,6 +884,19 @@ static int cdns_i3c_master_i2c_xfers(struct i2c_dev_desc *dev,
 			ccmd->tx_buf = xfers[i].buf;
 			ccmd->tx_len = xfers[i].len;
 		}
+
+		/*
+		 * QUIRK: The AX3000-i3c platform hosts certain I2C devices
+		 * that require an explicit REPEATED START signal
+		 * between combined transfers.
+		 * The default driver behavior might not issue one, leading
+		 * to communication failures with these specific devices.
+		 * Force-enable REPEATED START for this controller when the
+		 * quirk is set.
+		 */
+		if (i < nxfers - 1 &&
+		    (master->quirks & CDNS_I3C_QUIRKS_ENABLE_REPEATED_START))
+			ccmd->cmd0 |= CMD0_FIFO_RSBC;
 	}
 
 	cdns_i3c_master_queue_xfer(master, xfer);
@@ -1632,6 +1647,10 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 	master->sysclk = devm_clk_get(&pdev->dev, "sysclk");
 	if (IS_ERR(master->sysclk))
 		return PTR_ERR(master->sysclk);
+
+	/* Parse device tree properties for additional quirks */
+	if (of_property_read_bool(pdev->dev.of_node, "enable-repeated-start"))
+		master->quirks |= CDNS_I3C_QUIRKS_ENABLE_REPEATED_START;
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
