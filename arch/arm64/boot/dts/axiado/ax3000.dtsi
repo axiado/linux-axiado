@@ -674,6 +674,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c1: i3c-master@80500800 {
@@ -688,6 +689,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c2: i3c-master@80580400 {
@@ -702,6 +704,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c3: i3c-master@80580800 {
@@ -716,6 +719,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c4: i3c-master@80600400 {
@@ -730,6 +734,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c5: i3c-master@80600800 {
@@ -744,6 +749,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c6: i3c-master@80680400 {
@@ -758,6 +764,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c7: i3c-master@80680800 {
@@ -772,6 +779,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c8: i3c-master@80700400 {
@@ -786,6 +794,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c9: i3c-master@80700800 {
@@ -800,6 +809,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c10: i3c-master@80780400 {
@@ -814,6 +824,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c11: i3c-master@80780800 {
@@ -828,6 +839,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c12: i3c-master@80800400 {
@@ -842,6 +854,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c13: i3c-master@80800800 {
@@ -856,6 +869,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c14: i3c-master@80880400 {
@@ -870,6 +884,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c15: i3c-master@80880800 {
@@ -884,6 +899,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		i3c16: i3c-master@80620400 {
@@ -898,6 +914,7 @@
 			#address-cells = <3>;
 			#size-cells = <0>;
 			status = "disabled";
+			disable-ibir;
 		};
 
 		uart0: serial@80520000 {
