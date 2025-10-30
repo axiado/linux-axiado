@@ -7,6 +7,7 @@
  * Supported quirks:
  * - disable-warn-on-invalid-id: Disable warning on invalid ID
  * - enable-repeated-start: Enable repeated start
+ * - disable-ibir: Disable IBIR handling
  * work done by:
  *  Copyright (C) 2024-2025 Axiado Corporation.
  *
@@ -374,6 +375,7 @@
 
 #define CDNS_I3C_QUIRKS_DISABLE_WARN_ON_INVALID_ID BIT(0)
 #define CDNS_I3C_QUIRKS_ENABLE_REPEATED_START BIT(1)
+#define CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING BIT(2)
 
 struct cdns_i3c_master_caps {
 	u32 cmdfifodepth;
@@ -1450,7 +1452,8 @@ static irqreturn_t cdns_i3c_master_interrupt(int irq, void *data)
 	cdns_i3c_master_end_xfer_locked(master, status);
 	spin_unlock(&master->xferqueue.lock);
 
-	if (status & MST_INT_IBIR_THR)
+	if (status & MST_INT_IBIR_THR &&
+	    !(master->quirks & CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING))
 		cnds_i3c_master_demux_ibis(master);
 
 	return IRQ_HANDLED;
@@ -1652,6 +1655,9 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 	if (of_property_read_bool(pdev->dev.of_node, "enable-repeated-start"))
 		master->quirks |= CDNS_I3C_QUIRKS_ENABLE_REPEATED_START;
 
+	if (of_property_read_bool(pdev->dev.of_node, "disable-ibir"))
+		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING;
+
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
@@ -1705,8 +1711,19 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 		goto err_disable_sysclk;
 	}
 
-	writel(IBIR_THR(1), master->regs + CMD_IBI_THR_CTRL);
-	writel(MST_INT_IBIR_THR, master->regs + MST_IER);
+	/*
+	 * QUIRK: The AX3000-i3c controller may generate spurious IBI
+	 * interrupts when standard I2C devices (which do not
+	 * support IBI) are connected to the bus.
+	 *
+	 * Handling these unexpected IBIs can lead to a driver crash.
+	 * To avoid this, disable IBIR handling entirely for this
+	 * controller variant.
+	 */
+	if (!(master->quirks & CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING)) {
+		writel(IBIR_THR(1), master->regs + CMD_IBI_THR_CTRL);
+		writel(MST_INT_IBIR_THR, master->regs + MST_IER);
+	}
 	writel(DEVS_CTRL_DEV_CLR_ALL, master->regs + DEVS_CTRL);
 
 	ret = i3c_master_register(&master->base, &pdev->dev,
