@@ -3457,6 +3457,17 @@ F:	Documentation/devicetree/bindings/phy/axiado,ax3000-emmc-phy.yaml
 F:	drivers/phy/axiado/Kconfig
 F:	drivers/phy/axiado/phy-axiado-emmc.c
 
+AXIADO ESPI DRIVER
+M:	Satya Jena <sjena@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+R:	Axiado Reviewers <linux-maintainer@axiado.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	Documentation/devicetree/bindings/soc/axiado/axiado,ax3000-espi.yaml
+F:	drivers/soc/axiado/axiado-espi.c
+F:	drivers/soc/axiado/axiado-espi.h
+
 AXIADO PWM DRIVER
 M:	Akhila Kavi <akavi@axiado.com>
 M:	Makarand Pawagi <mpawagi@axiado.com>
