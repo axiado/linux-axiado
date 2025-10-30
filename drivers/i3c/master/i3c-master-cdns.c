@@ -8,6 +8,7 @@
  * - disable-warn-on-invalid-id: Disable warning on invalid ID
  * - enable-repeated-start: Enable repeated start
  * - disable-ibir: Disable IBIR handling
+ * - disable-ibir-error: Disable IBIR error
  * work done by:
  *  Copyright (C) 2024-2025 Axiado Corporation.
  *
@@ -376,6 +377,7 @@
 #define CDNS_I3C_QUIRKS_DISABLE_WARN_ON_INVALID_ID BIT(0)
 #define CDNS_I3C_QUIRKS_ENABLE_REPEATED_START BIT(1)
 #define CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING BIT(2)
+#define CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR BIT(3)
 
 struct cdns_i3c_master_caps {
 	u32 cmdfifodepth;
@@ -1369,7 +1371,18 @@ static void cdns_i3c_master_handle_ibi(struct cdns_i3c_master *master,
 	 * FIXME: maybe we should report the FIFO OVF errors to the upper
 	 * layer.
 	 */
-	if (id >= master->ibi.num_slots || (ibir & IBIR_ERROR))
+	/*
+	 * QUIRK: The AX3000-i3c host does not support IBIR handling.
+	 * However, I3C hubs (e.g., Renesas) connected to it do
+	 * support IBIR and will handle it themselves.
+	 * This mismatch causes the AX3000 host to incorrectly
+	 * flag a spurious IBIR_ERROR. Ignore this specific error
+	 * when the quirk is set, as the IBI is being correctly
+	 * managed by the hub.
+	 */
+	if (id >= master->ibi.num_slots ||
+	    (!(master->quirks & CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR) &&
+	     (ibir & IBIR_ERROR)))
 		goto out;
 
 	dev = master->ibi.slots[id];
@@ -1657,6 +1670,9 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 
 	if (of_property_read_bool(pdev->dev.of_node, "disable-ibir"))
 		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING;
+
+	if (of_property_read_bool(pdev->dev.of_node, "disable-ibir-error"))
+		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR;
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
