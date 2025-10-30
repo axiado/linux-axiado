@@ -11,6 +11,7 @@
  * - disable-ibir-error: Disable IBIR error
  * - disable-ctrl-halt: Disable CTRL HALT handling
  * - disable-mst-abort: Disable MST ABORT handling
+ * - skip-payload-inc: Skip payload increment
  * work done by:
  *  Copyright (C) 2024-2025 Axiado Corporation.
  *
@@ -382,6 +383,7 @@
 #define CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR BIT(3)
 #define CDNS_I3C_QUIRKS_DISABLE_CTRL_HALT BIT(4)
 #define CDNS_I3C_QUIRKS_DISABLE_MST_ABORT BIT(5)
+#define CDNS_I3C_QUIRKS_SKIP_PAYLOAD_INC BIT(6)
 
 struct cdns_i3c_master_caps {
 	u32 cmdfifodepth;
@@ -829,7 +831,17 @@ static int cdns_i3c_master_priv_xfers(struct i3c_dev_desc *dev,
 			ccmd->cmd0 |= CMD0_FIFO_RNW;
 			ccmd->rx_buf = xfers[i].data.in;
 			ccmd->rx_len = xfers[i].len;
-			pl_len++;
+			/*
+			 * QUIRK: When certain I3C hubs (e.g., Renesas HUB) connect
+			 * to the AX3000-i3c, the standard payload length increment
+			 * causes communication issues. The hub expects the exact
+			 * payload length, but the Cadence controller normally adds
+			 * an extra byte.
+			 * Skip the payload length increment for this controller.
+			 */
+			if (!(master->quirks &
+			      CDNS_I3C_QUIRKS_SKIP_PAYLOAD_INC))
+				pl_len++;
 		} else {
 			ccmd->tx_buf = xfers[i].data.out;
 			ccmd->tx_len = xfers[i].len;
@@ -1708,6 +1720,9 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 
 	if (of_property_read_bool(pdev->dev.of_node, "disable-mst-abort"))
 		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_MST_ABORT;
+
+	if (of_property_read_bool(pdev->dev.of_node, "skip-payload-inc"))
+		master->quirks |= CDNS_I3C_QUIRKS_SKIP_PAYLOAD_INC;
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
