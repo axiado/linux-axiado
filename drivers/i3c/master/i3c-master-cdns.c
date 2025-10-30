@@ -1192,8 +1192,18 @@ static int cdns_i3c_master_do_daa(struct i3c_master_controller *m)
 static u8 cdns_i3c_master_calculate_thd_delay(struct cdns_i3c_master *master)
 {
 	unsigned long sysclk_rate = clk_get_rate(master->sysclk);
-	u8 thd_delay = DIV_ROUND_UP(master->devdata->thd_delay_ns,
-				    (NSEC_PER_SEC / sysclk_rate));
+	u8 thd_delay;
+
+	/*
+	 * If clock rate is invalid, use the maximum encoded delay.
+	 * This keeps hardware in a safe state rather than risking
+	 * a divide-by-zero.
+	 */
+	if (WARN_ON(!sysclk_rate))
+		return THD_DELAY_MAX;
+
+	thd_delay = DIV_ROUND_UP(master->devdata->thd_delay_ns,
+				 (NSEC_PER_SEC / sysclk_rate));
 
 	/* Every value greater than 3 is not valid. */
 	if (thd_delay > THD_DELAY_MAX)
