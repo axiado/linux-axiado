@@ -8,7 +8,8 @@ title: Axiado AX3000 USB Device Controller (Corigine-based)
 
 maintainers:
   - Makarand Pawagi <mpawagi@axiado.com>
-  - Krutik Shah <axiado-1527@axiado.com>
+  - Krutik Shah <krutikshah@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
 
 description: |
   Binding for the Axiado AX3000 USB Device Controller (UDC) used on
