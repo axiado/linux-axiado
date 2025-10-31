@@ -3449,7 +3449,7 @@ F:	drivers/gpu/drm/axiado/axiado_drm_drv.c
 
 AXIADO EMMC PHY DRIVER
 M:	Makarand Pawagi <mpawagi@axiado.com>
-M:	SriNavmani A <Axiado-1506@axiado.com>
+M:	SriNavmani A <srinavmani@axiado.com>
 M:	Prasad Bolisetty <pbolisetty@axiado.com>
 L:	linux-phy@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
