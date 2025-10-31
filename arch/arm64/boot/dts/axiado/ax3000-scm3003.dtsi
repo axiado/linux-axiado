@@ -108,3 +108,7 @@
 &pcie_x2 {
 	status = "okay";
 };
+
+&mctp0 {
+	status = "okay";
+};
