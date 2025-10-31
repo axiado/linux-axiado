@@ -3606,6 +3606,18 @@ F:	Documentation/devicetree/bindings/media/axiado,ax3000-video.yaml
 F:	drivers/media/platform/axiado/axiado-video.c
 F:	drivers/media/platform/axiado/axiado-video.h
 
+AXIADO MCTP DRIVER
+M:	Shubhangini G <shubhangini@axiado.com>
+M:	Sanket Parmar <sparmar@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	Documentation/devicetree/bindings/soc/axiado/axiado,ax3000-mctp.yaml
+F:	drivers/soc/axiado/axiado-mctp.c
+F:	drivers/soc/axiado/axiado-mctp.h
+F:	include/uapi/linux/axiado-mctp.h
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
