@@ -83,6 +83,15 @@ config AXIADO_SGPIO_REGMAP
 	  direct memory mapping if regmap is not available. This is useful
 	  when SGPIO is part of a larger MFD device with shared register space.
 
+config AXIADO_MCTP
+	tristate "Axiado MCTP Controller support"
+	depends on PCIE_AXIADO
+	help
+	  Say yes to enable support for axiado MCTP Controller.
+	  The MCTP controller allows the BMC to communicate with devices
+	  on the host PCIe network.
+	  If in doubt, say N.
+
 config AXIADO_ESPI
 	tristate "Axiado eSPI Slave Controller support"
 	select REGMAP
