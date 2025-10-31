@@ -6,7 +6,7 @@
 obj-y				+= apple/
 obj-y				+= aspeed/
 obj-$(CONFIG_ARCH_AT91)		+= atmel/
-obj-$(CONFIG_SOC_AXIADO) += axiado/
+obj-$(CONFIG_SOC_AXIADO)	+= axiado/
 obj-y				+= bcm/
 obj-$(CONFIG_SOC_CANAAN)	+= canaan/
 obj-$(CONFIG_ARCH_DOVE)		+= dove/

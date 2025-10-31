@@ -5,5 +5,4 @@ ccflags-y += -I $(srctree)/drivers/spi/
 obj-$(CONFIG_AXIADO_LTPI)		+= ltpi-axiado.o
 obj-$(CONFIG_AXIADO_SGPIO)		+= sgpio-axiado.o
 obj-$(CONFIG_AXIADO_ESPI)		+= axiado-espi.o
-
-
+obj-$(CONFIG_AXIADO_MCTP)		+= axiado-mctp.o
