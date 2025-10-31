@@ -95,6 +95,8 @@ int axiado_pcie_trigger_msi(struct platform_device *pdev,
 			    struct axiado_pcie_func_info func_info,
 			    u8 vector_no);
 unsigned int axiado_pcie_msgbox_read(struct platform_device *pdev, u32 offset);
-unsigned int axiado_pcie_msgbox_write(struct platform_device *pdev, u32 offset,
+void axiado_pcie_msgbox_write(struct platform_device *pdev, u32 offset,
 				      u32 val);
+unsigned int axiado_pcie_ocm_csr_read(struct platform_device *pdev);
+void axiado_pcie_ocm_csr_write(struct platform_device *pdev, u32 val);
 #endif /** PCIE_AXIADO_H */
