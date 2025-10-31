@@ -1423,6 +1423,25 @@
 			};
 		};
 
+		mctp0: mctp@0 {
+			compatible = "axiado,ax3000-mctp";
+			reg = <0x0 0x802E0000 0x00 0x20000>;
+			reg-names = "ocm-base";
+			/* For determining A0, B0 ... etc
+			 * Encodes whether this is EP or RC as well.
+			 * For EPs, bit 8 is set to 0x1.
+			 */
+			axrc-version = <0x001>;
+			/* for axrc-version == 1, this indicates
+			 * Which RC to bind to for VDM generation
+			 * <2> -> X2, <1> -> X1
+			 */
+			axrc-vdm-id = <2>;
+			pcie-phandle = <&pcie_x2>;
+			isolated-cpu = <3>;
+			status = "disabled";
+		};
+
 		video: video {
 			compatible = "axiado,ax3000-video";
 			memory-region = <&pci_ep_disp>;
