@@ -3456,6 +3456,16 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/display/axiado/axiado,ax3000-hdmi.yaml
 F:	drivers/gpu/drm/axiado/axiado_hdmi.c
 
+AXIADO DISPLAY DRIVER
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+M:	SriNavmani A <srinavmani@axiado.com>
+L:	linux-phy@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	Documentation/devicetree/bindings/display/axiado/axiado,db9000-lcdc.yaml
+F:	drivers/gpu/drm/axiad/axiado_lcdc.c
+F:	drivers/gpu/drm/axiado/Kconfig
+
 AXIADO EMMC PHY DRIVER
 M:	Makarand Pawagi <mpawagi@axiado.com>
 M:	SriNavmani A <srinavmani@axiado.com>
