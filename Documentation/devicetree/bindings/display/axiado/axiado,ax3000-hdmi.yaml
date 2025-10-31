@@ -29,10 +29,23 @@ properties:
         maxItem: 2
 
     clock-names:
-        maxItem: 2
+      - items:
+          - const: clk_disp
+          - const: clk_pclk
+        minItems: 2
+        maxItems: 2
 
     interrupts:
         maxItem: 1
+
+    ports:
+        $ref: /schemas/graph.yaml#/properties/ports
+
+        properties:
+            port@0:
+               $ref: /schemas/graph.yaml#/properties/port
+               description:
+                   Port node with one endpoint connected to the hdmi-connector node.
 
 required:
   - compatible
@@ -41,19 +54,35 @@ required:
   - clocks
   - clock-names
   - interrupts
+  - ports
 
-additionalProperties: false
+unevaluatedProperties: false
 
 examples:
   - |
     #include <dt-bindings/interrupt-controller/irq.h>
 
     hdmi: hdmi@80C11000 {
-        compatible ="axiado,ax3000-hdmi";
+        compatible = "axiado,ax3000-hdmi";
         reg = <0x00 0x80C11000 0x00 0x4000>;
         memory-region = <&pci_ep_disp>;
         interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
         clocks =  <&clk_disp>, <&clk_pclk>;
         clock-names = "clk_disp", "clk_pclk";
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        ports {
+            #address-cells = <1>;
+            #size-cells = <0>;
+            hdmi_in: port {
+                #address-cells = <1>;
+                #size-cells = <0>;
+                hdmi_in_disp: endpoint@0 {
+                    reg = <0>;
+                    remote-endpoint = <&disp_out_hdmi>;
+                };
+            };
+        };
     };
 ...
