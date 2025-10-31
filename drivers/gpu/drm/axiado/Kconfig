@@ -31,3 +31,27 @@ config AXIADO_HDMI
 	  framework, say Y or M here.
 
 	  If unsure, say N.
+
+config AXIADO_LCDC
+	bool "DRM Support for DB9000 LCD Controller"
+	depends on DRM
+	depends on AXIADO_HDMI
+	select DRM_KMS_HELPER
+	select DRM_GEM_CMA_HELPER
+	select DRM_KMS_CMA_HELPER
+	select DRM_PANEL_BRIDGE
+	select FB_PROVIDE_GET_FB_UNMAPPED_AREA if FB
+	help
+	  Choose this option to enable support for the Axiado AX3000
+	  DB9000 display controller. The DB9000 is a display bridge
+	  block inside the AX3000 SoC that connects the display
+	  subsystem to an HDMI transmitter.
+	  This driver integrates with the DRM framework and
+	  implements the standard device-tree graph bindings for
+	  encoders and bridges. The node is typically a child of
+	  the display-subsystem in the SoC device tree.
+
+	  Say Y or M if you want to use HDMI or related display
+	  output through the DB9000 controller on AX3000 platforms.
+
+	  If unsure, say N.
