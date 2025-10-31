@@ -726,12 +726,29 @@ unsigned int axiado_pcie_msgbox_read(struct platform_device *pdev, u32 offset)
 }
 EXPORT_SYMBOL(axiado_pcie_msgbox_read);
 
-unsigned int axiado_pcie_msgbox_write(struct platform_device *pdev, u32 offset,
+void axiado_pcie_msgbox_write(struct platform_device *pdev, u32 offset,
 				      u32 val)
 {
 	struct axiado_pcie *ax_pcie = platform_get_drvdata(pdev);
 
 	iowrite32(val, (ax_pcie->ext + offset));
-	return 0;
 }
 EXPORT_SYMBOL(axiado_pcie_msgbox_write);
+
+/* These APIs are used in MCTP driver to update the ring buffer address */
+unsigned int axiado_pcie_ocm_csr_read(struct platform_device *pdev)
+{
+	struct axiado_pcie *ax_pcie = platform_get_drvdata(pdev);
+
+	return ioread32(ax_pcie->cfg + REG_PCIE_X2_CSR_INT_OCM_OFFSET);
+}
+EXPORT_SYMBOL(axiado_pcie_ocm_csr_read);
+
+void axiado_pcie_ocm_csr_write(struct platform_device *pdev,
+					u32 val)
+{
+	struct axiado_pcie *ax_pcie = platform_get_drvdata(pdev);
+
+	iowrite32(val, (ax_pcie->cfg + REG_PCIE_X2_CSR_INT_OCM_OFFSET));
+}
+EXPORT_SYMBOL(axiado_pcie_ocm_csr_write);
