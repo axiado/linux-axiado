@@ -646,6 +646,15 @@
 						host-status-offset = <0x1>; /* 1-byte offset per IPMI 2.0 spec */
 						status = "disabled";
 					};
+
+					espi_snoop: espi-snoop@C0 {
+						compatible = "axiado,ax3000-espi-snoop";
+						reg = <0xC0 0x10>;
+						interrupts = <13>;
+						interrupt-parent = <&mfd_espi>;
+						io-addr = <0x80>;
+						status = "disabled";
+					};
 				};
 			};
 		};
