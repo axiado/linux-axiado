@@ -3487,6 +3487,16 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/ipmi/axiado,ax3000-kcs-bmc.yaml
 F:	drivers/char/ipmi/kcs_bmc_axiado.c
 
+AXIADO ESPI SNOOP DRIVER
+M:	Rajan Patel <rpatel@axiado.com>
+M:	Satya Jena <sjena@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	Documentation/devicetree/bindings/soc/axiado/axiado,ax3000-espi-snoop.yaml
+F:	drivers/soc/axiado/axiado-espi-snoop.c
+
 AXIADO PWM DRIVER
 M:	Akhila Kavi <akavi@axiado.com>
 M:	Makarand Pawagi <mpawagi@axiado.com>
