@@ -3440,7 +3440,7 @@ F:	include/linux/hid.h
 AXIADO DRM DRIVER
 M:	Makarand Pawagi <mpawagi@axiado.com>
 M:	Prasad Bolisetty <pbolisetty@axiado.com>
-M:	SriNavmani A <axiado-1506@axiado.com>
+M:	SriNavmani A <srinavmani@axiado.com>
 L:	linux-phy@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	Documentation/devicetree/bindings/display/axiado/axiado,display-subsystem.yaml
