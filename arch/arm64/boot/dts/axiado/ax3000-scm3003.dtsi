@@ -97,6 +97,74 @@
 	};
 };
 
+&i3c0 {
+	status = "okay";
+};
+
+&i3c1 {
+	status = "okay";
+};
+
+&i3c2 {
+	status = "okay";
+};
+
+&i3c3 {
+	status = "okay";
+};
+
+&i3c4 {
+	status = "okay";
+};
+
+&i3c5 {
+	status = "okay";
+};
+
+&i3c6 {
+	status = "okay";
+};
+
+&i3c7 {
+	status = "okay";
+};
+
+&i3c8 {
+	status = "okay";
+};
+
+&i3c9 {
+	status = "okay";
+};
+
+&i3c10 {
+	status = "okay";
+};
+
+&i3c11 {
+	status = "okay";
+};
+
+&i3c12 {
+	status = "okay";
+};
+
+&i3c13 {
+	status = "okay";
+};
+
+&i3c14 {
+	status = "okay";
+};
+
+&i3c15 {
+	status = "okay";
+};
+
+&i3c16 {
+	status = "okay";
+};
+
 &saradc {
 	status = "okay";
 };
