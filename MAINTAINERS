@@ -3638,6 +3638,15 @@ F:	drivers/soc/axiado/axiado-mctp.c
 F:	drivers/soc/axiado/axiado-mctp.h
 F:	include/uapi/linux/axiado-mctp.h
 
+AXIADO 8250 UART DRIVER
+M:	Sanket Parmar <sparmar@axiado.com>
+M:	Satya Jena <sjena@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+S:	Maintained
+F:	Documentation/devicetree/bindings/serial/axiado,espi-uart.yaml
+F:	drivers/tty/serial/8250/8250_axiado.c
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
