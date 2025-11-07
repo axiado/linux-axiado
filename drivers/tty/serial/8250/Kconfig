@@ -354,6 +354,17 @@ config SERIAL_8250_ACORN
 	  system, say Y to this option.  The driver can handle 1, 2, or 3 port
 	  cards.  If unsure, say N.
 
+config SERIAL_8250_AXIADO
+	tristate "AXIADO ESPI UART support"
+	depends on ARCH_AXIADO || COMPILE_TEST
+	depends on AXIADO_ESPI
+	select REGMAP_MMIO
+	select SERIAL_8250
+	help
+	  Provides driver for UART over eSPI interface for Axiado Platform.
+
+	  If you don't have such card, or if unsure, say N.
+
 config SERIAL_8250_BCM2835AUX
 	tristate "BCM2835 auxiliar mini UART support"
 	depends on ARCH_BCM2835 || COMPILE_TEST
