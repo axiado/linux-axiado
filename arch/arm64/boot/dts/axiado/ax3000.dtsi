@@ -655,6 +655,20 @@
 						io-addr = <0x80>;
 						status = "disabled";
 					};
+
+					espi_uart0: espi-uart@40 {
+						compatible = "axiado,ax3000-espi-uart";
+						reg = <0x40 0x02>;
+						interrupts = <5>; /* Virtual IRQ: bit 5 */
+						interrupt-parent = <&mfd_espi>;
+						clock-names = "uart_clk", "pclk";
+						clocks = <&refclk &refclk>;
+						channel-index = <0>;
+						io-addr = <0x3F8>;
+						fifo-size = <16>;
+						cpu-fifo-size = <64>;
+						status = "disabled";
+					};
 				};
 			};
 		};
