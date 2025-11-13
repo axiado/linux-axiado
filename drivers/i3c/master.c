@@ -2501,11 +2501,13 @@ static int i3c_master_i2c_adapter_init(struct i3c_master_controller *master)
 	struct i2c_dev_desc *i2cdev;
 	struct i2c_dev_boardinfo *i2cboardinfo;
 	int ret;
+	bool skip_i2c_detection = false;
 
 	adap->dev.parent = master->dev.parent;
 	adap->owner = master->dev.parent->driver->owner;
 	adap->algo = &i3c_master_i2c_algo;
 	strncpy(adap->name, dev_name(master->dev.parent), sizeof(adap->name));
+	adap->dev.of_node = master->dev.of_node;
 
 	/* FIXME: Should we allow i3c masters to override these values? */
 	adap->timeout = 1000;
@@ -2519,12 +2521,19 @@ static int i3c_master_i2c_adapter_init(struct i3c_master_controller *master)
 	 * We silently ignore failures here. The bus should keep working
 	 * correctly even if one or more i2c devices are not registered.
 	 */
-	list_for_each_entry(i2cboardinfo, &master->boardinfo.i2c, node) {
-		i2cdev = i3c_master_find_i2c_dev_by_addr(master,
-							 i2cboardinfo->base.addr);
-		if (WARN_ON(!i2cdev))
-			continue;
-		i2cdev->dev = i2c_new_client_device(adap, &i2cboardinfo->base);
+	/* WAR for Axiado platform: skip i2c device detection when using i2c alias */
+	if (master->dev.of_node)
+		skip_i2c_detection = of_property_read_bool(master->dev.of_node,
+							   "use-i2c-alias");
+
+	if (!skip_i2c_detection) {
+		list_for_each_entry(i2cboardinfo, &master->boardinfo.i2c, node) {
+			i2cdev = i3c_master_find_i2c_dev_by_addr(master,
+								 i2cboardinfo->base.addr);
+			if (WARN_ON(!i2cdev))
+				continue;
+			i2cdev->dev = i2c_new_client_device(adap, &i2cboardinfo->base);
+		}
 	}
 
 	return 0;
@@ -2824,6 +2833,15 @@ int i3c_master_register(struct i3c_master_controller *master,
 	ret = i3c_bus_init(i3cbus, master->dev.of_node);
 	if (ret)
 		return ret;
+
+	/* WAR for Axiado platform: allow i3c alias as i2c */
+	if (master->dev.of_node &&
+	    of_property_read_bool(master->dev.of_node, "use-i2c-alias")) {
+		int id = of_alias_get_id(master->dev.of_node, "i2c");
+
+		if (id >= 0)
+			i3cbus->id = id;
+	}
 
 	device_initialize(&master->dev);
 	dev_set_name(&master->dev, "i3c-%d", i3cbus->id);
