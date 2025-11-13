@@ -698,6 +698,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c1: i3c-master@80500800 {
@@ -713,6 +714,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c2: i3c-master@80580400 {
@@ -728,6 +730,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c3: i3c-master@80580800 {
@@ -743,6 +746,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c4: i3c-master@80600400 {
@@ -758,6 +762,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c5: i3c-master@80600800 {
@@ -773,6 +778,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c6: i3c-master@80680400 {
@@ -788,6 +794,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c7: i3c-master@80680800 {
@@ -803,6 +810,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c8: i3c-master@80700400 {
@@ -818,6 +826,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c9: i3c-master@80700800 {
@@ -833,6 +842,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c10: i3c-master@80780400 {
@@ -848,6 +858,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c11: i3c-master@80780800 {
@@ -863,6 +874,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c12: i3c-master@80800400 {
@@ -878,6 +890,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c13: i3c-master@80800800 {
@@ -893,6 +906,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c14: i3c-master@80880400 {
@@ -908,6 +922,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c15: i3c-master@80880800 {
@@ -923,6 +938,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		i3c16: i3c-master@80620400 {
@@ -938,6 +954,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 			disable-ibir;
+			use-i2c-alias;
 		};
 
 		uart0: serial@80520000 {
