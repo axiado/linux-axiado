@@ -98,6 +98,36 @@
 			      <0x00 0x48000000 0x00 0x100000>;
 			no-map;
 		};
+		shared_mem_rsvd_m0: mem_region@4000 {
+			compatible = "shared-dma-pool";
+			reg = <0x00 0x4000 0x00 0x8000>;
+			no-map;
+		};
+		shared_mem_rsvd_ml0: mem_region@3c000 {
+			compatible = "shared-dma-pool";
+			reg = <0x00 0x3c000 0x00 0x8000>;
+			no-map;
+		};
+		shared_mem_rsvd_ml1: mem_region@44000 {
+			compatible = "shared-dma-pool";
+			reg = <0x00 0x44000 0x00 0x8000>;
+			no-map;
+		};
+		shared_mem_rsvd_ml2: mem_region@4c000 {
+			compatible = "shared-dma-pool";
+			reg = <0x00 0x4c000 0x00 0x8000>;
+			no-map;
+		};
+		shared_mem_rsvd_ml3: mem_region@54000 {
+			compatible = "shared-dma-pool";
+			reg = <0x00 0x54000 0x00 0x8000>;
+			no-map;
+		};
+		shared_mem_rsvd_fwl: mem_region@34000 {
+			compatible = "shared-dma-pool";
+			reg = <0x00 0x34000 0x00 0x8000>;
+			no-map;
+		};
 	};
 
 	display-subsystem {
@@ -164,7 +194,86 @@
 			#redistributor-regions = <1>;
 			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
 		};
-
+		ipc0: m0-ipc@4000 {
+			compatible = "axiado,ax-ipc";
+			#interrupt-cells = <1>;
+			reg = <0x00 0x4000 0x00 0x8000>,    /* Shared mem info */
+			<0x0 0x88014120 0x0 0x4>,       /* TX intr mem info */
+			<0x0 0x88014154 0x0 0x4>,       /* RX intr mem info */
+			<0x0 0x02A00000 0x0 0x100000>,  /* Data buffers for A53->M0*/
+			<0x0 0x80620804 0x0 0x4>,       /* scratchpad1 register, for boot status */
+			<0x0 0x01500000 0x0 0x4>;       /* scratchpad region, for mmc partition */
+			memory-region = <&shared_mem_rsvd_m0>;
+			interrupts = <GIC_SPI 171 IRQ_TYPE_LEVEL_HIGH>;
+			LABEL = "M0";
+			interrupt-parent = <&gic500>;
+			status = "okay";
+		};
+		ipc1: ml0-ipc@3C000 {
+			compatible = "axiado,ax-ipc";
+			#interrupt-cells = <1>;
+			reg = <0x00 0x3C000 0x00 0x8000>,   /* Shared mem info */
+			<0x0 0x88014140 0x0 0x4>,       /* TX intr mem info */
+			<0x0 0x88000070 0x0 0x4>,       /* RX intr mem info */
+			<0x0 0x04800000 0x0 0x100000>;  /* Data buffers for A53->ML0 */
+			memory-region = <&shared_mem_rsvd_ml0>;
+			interrupts = <GIC_SPI 195 IRQ_TYPE_LEVEL_HIGH>;
+			LABEL = "ML0";
+			interrupt-parent = <&gic500>;
+			status = "okay";
+		};
+		ipc2: ml1-ipc@44000 {
+			compatible = "axiado,ax-ipc";
+			#interrupt-cells = <1>;
+			reg = <0x00 0x44000 0x00 0x8000>,   /* Shared mem info */
+			<0x0 0x88014144 0x0 0x4>,       /* TX intr mem info */
+			<0x0 0x88002070 0x0 0x4>,       /* RX intr mem info */
+			<0x0 0x11000000 0x0 0x100000>;  /* Data buffers for A53->ML1*/
+			memory-region = <&shared_mem_rsvd_ml1>;
+			interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
+			LABEL = "ML1";
+			interrupt-parent = <&gic500>;
+			status = "okay";
+		};
+		ipc3: ml2-ipc@4C000 {
+			compatible = "axiado,ax-ipc";
+			#interrupt-cells = <1>;
+			reg = <0x00 0x4C000 0x00 0x8000>,   /* Shared mem info */
+			<0x0 0x88014148 0x0 0x4>,       /* TX intr mem info */
+			<0x0 0x88004070 0x0 0x4>,       /* RX intr mem info */
+			<0x0 0x1D800000 0x0 0x100000>;  /* Data buffers for A53->ML2*/
+			memory-region = <&shared_mem_rsvd_ml2>;
+			interrupts = <GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>;
+			LABEL = "ML2";
+			interrupt-parent = <&gic500>;
+			status = "okay";
+		};
+		ipc4: ml3-ipc@54000 {
+			compatible = "axiado,ax-ipc";
+			#interrupt-cells = <1>;
+			reg = <0x00 0x54000 0x00 0x8000>,   /* Shared mem info */
+			<0x0 0x8801414c 0x0 0x4>,       /* TX intr mem info */
+			<0x0 0x88006070 0x0 0x4>,       /* RX intr mem info */
+			<0x0 0x2A000000 0x0 0x100000>;  /* Data buffers for A53->ML3*/
+			memory-region = <&shared_mem_rsvd_ml3>;
+			interrupts = <GIC_SPI 198 IRQ_TYPE_LEVEL_HIGH>;
+			LABEL = "ML3";
+			interrupt-parent = <&gic500>;
+			status = "okay";
+		};
+		ipc5: fwl-ipc@34000 {
+			compatible = "axiado,ax-ipc";
+			#interrupt-cells = <1>;
+			reg = <0x00 0x34000 0x00 0x8000>,   /* Shared mem info */
+			<0x0 0x88014150 0x0 0x4>,       /* TX intr mem info */
+			<0x0 0x84210000 0x0 0x4>,       /* RX intr mem info */
+			<0x0 0x3BF00000 0x0 0x100000>;  /* Data buffers for A53->FWL*/
+			memory-region = <&shared_mem_rsvd_fwl>;
+			interrupts = <GIC_SPI 199 IRQ_TYPE_LEVEL_HIGH>;
+			LABEL = "FWL";
+			interrupt-parent = <&gic500>;
+			status = "okay";
+		};
 		/* GPIO Controller banks 0 - 7 */
 		gpio0: gpio-controller@80500000 {
 			compatible = "axiado,ax3000-gpio", "cdns,gpio-r1p02";
