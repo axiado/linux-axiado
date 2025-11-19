@@ -142,10 +142,11 @@
  */
 struct axiado_espi_uart {
 	struct device *dev;
+	struct work_struct tx_work;
 	struct regmap *regmap;
 	u16 perif_base;
 	u16 atu_base;
-	struct uart_8250_port uart_port;
+	struct uart_8250_port *uart_port;
 	int index;
 	u32 io_addr; /* I/O port address from host perspective */
 	u32 fifo_size; /* UART 0 (eSPI side) FIFO size */
@@ -172,7 +173,6 @@ static u32 axiado_uart_read_cpu_reg(struct axiado_espi_uart *uart, u32 reg)
 	u32 offset = UART_BASE_OFFSET(uart->index) + reg;
 	u32 value;
 	int ret;
-	int restore_lock = 0;
 
 	/* Ensure we don't access beyond the 28-byte used block */
 	if (reg >= UART_BLOCK_USED_SIZE) {
@@ -182,15 +182,7 @@ static u32 axiado_uart_read_cpu_reg(struct axiado_espi_uart *uart, u32 reg)
 		return 0;
 	}
 
-	if (spin_is_locked(&uart->uart_port.port.lock)) {
-		spin_unlock_irq(&uart->uart_port.port.lock);
-		restore_lock = 1;
-	}
-
 	ret = regmap_read(uart->regmap, uart->perif_base + offset, &value);
-
-	if (restore_lock)
-		spin_lock_irq(&uart->uart_port.port.lock);
 
 	if (ret) {
 		dev_err(uart->dev,
@@ -213,7 +205,6 @@ static void axiado_uart_write_cpu_reg(struct axiado_espi_uart *uart, u32 reg,
 {
 	u32 offset = UART_BASE_OFFSET(uart->index) + reg;
 	int ret;
-	int restore_lock = 0;
 
 	/* Ensure we don't access beyond the 28-byte used block */
 	if (reg >= UART_BLOCK_USED_SIZE) {
@@ -223,10 +214,6 @@ static void axiado_uart_write_cpu_reg(struct axiado_espi_uart *uart, u32 reg,
 		return;
 	}
 
-	if (spin_is_locked(&uart->uart_port.port.lock)) {
-		spin_unlock_irq(&uart->uart_port.port.lock);
-		restore_lock = 1;
-	}
 
 	ret = regmap_write(uart->regmap, uart->perif_base + offset, value);
 	if (ret) {
@@ -234,9 +221,6 @@ static void axiado_uart_write_cpu_reg(struct axiado_espi_uart *uart, u32 reg,
 			"Failed to write CPU UART register 0x%x: %d\n", offset,
 			ret);
 	}
-	if (restore_lock)
-		spin_lock_irq(&uart->uart_port.port.lock);
-
 }
 
 /**
@@ -356,7 +340,7 @@ static int axiado_uart_configure_atu(struct axiado_espi_uart *uart)
 		return ret;
 	}
 
-	dev_info(
+	dev_dbg(
 		uart->dev,
 		"Configured ATU for UART%d: range 0x%llx-0x%llx (28-byte block)\n",
 		uart->index, start_addr, end_addr);
@@ -376,7 +360,7 @@ static void axiado_uart_disable_atu(struct axiado_espi_uart *uart)
 	regmap_update_bits(uart->regmap, uart->atu_base + ATU_ENABLE,
 							atu_en_bit, 0);
 
-	dev_info(uart->dev, "Disabled ATU for UART%d\n", uart->index);
+	dev_dbg(uart->dev, "Disabled ATU for UART%d\n", uart->index);
 }
 
 /**
@@ -492,7 +476,7 @@ static void axiado_uart_setup_fifos(struct axiado_espi_uart *uart)
 
 	mutex_unlock(&uart->mutex);
 
-	dev_info(
+	dev_dbg(
 		uart->dev,
 		"FIFO configuration: CPU=%u bytes, eSPI=%u bytes (28-byte register block)\n",
 		uart->cpu_fifo_size, uart->fifo_size);
@@ -507,17 +491,11 @@ static void axiado_uart_setup_fifos(struct axiado_espi_uart *uart)
  */
 static irqreturn_t axiado_uart_cpu_irq_handler(int irq, void *data)
 {
-	struct irq_desc *desc = irq_to_desc(irq);
 	struct uart_port *port = data;
 	struct axiado_espi_uart *uart = port->private_data;
 	struct uart_8250_port *up = up_to_u8250p(port);
 	u32 iir, lsr;
-	int restore_lock = 0;
 
-	if (raw_spin_is_locked(&desc->lock)) {
-		raw_spin_unlock_irq(&desc->lock);
-		restore_lock = 1;
-	}
 
 	/* Use mutex since we're in threaded context and regmap can sleep */
 	mutex_lock(&uart->mutex);
@@ -551,8 +529,6 @@ static irqreturn_t axiado_uart_cpu_irq_handler(int irq, void *data)
 	}
 
 	mutex_unlock(&uart->mutex);
-	if (restore_lock)
-		raw_spin_lock_irq(&desc->lock);
 
 	return IRQ_HANDLED;
 }
@@ -560,17 +536,8 @@ static irqreturn_t axiado_uart_cpu_irq_handler(int irq, void *data)
 static void axiado_serial_out(struct uart_port *port, int offset, int value)
 {
 	struct axiado_espi_uart *uart = port->private_data;
-	int restore_lock = 0;
-
-	if (spin_is_locked(&port->lock)) {
-		spin_unlock_irq(&port->lock);
-		restore_lock = 1;
-	}
 
 	axiado_uart_write_cpu_reg(uart, offset * sizeof(u32), value);
-
-	if (restore_lock)
-		spin_lock_irq(&port->lock);
 
 }
 
@@ -578,18 +545,9 @@ static unsigned int axiado_serial_in(struct uart_port *port, int offset)
 {
 	struct axiado_espi_uart *uart = port->private_data;
 	unsigned int val;
-	int restore_lock = 0;
-
-	if (spin_is_locked(&port->lock)) {
-		spin_unlock_irq(&port->lock);
-		restore_lock = 1;
-	}
 
 
 	val = axiado_uart_read_cpu_reg(uart, offset * sizeof(u32));
-
-	if (restore_lock)
-		spin_lock_irq(&port->lock);
 
 	return val;
 }
@@ -604,17 +562,9 @@ static int axiado_uart_startup(struct uart_port *port)
 {
 	struct axiado_espi_uart *uart = port->private_data;
 	u8 dll, dlm, fcr, lcr;
-	int restore_lock = 0;
-
-	if (spin_is_locked(&uart->uart_port.port.lock)) {
-		spin_unlock_irq(&uart->uart_port.port.lock);
-		restore_lock = 1;
-	}
 
 	/* Setup FIFOs */
 	axiado_uart_setup_fifos(uart);
-
-	mutex_lock(&uart->mutex);
 
 	/* Copy settings from UART0 (eSPI Side) */
 	dll = (axiado_uart_read_espi_reg(
@@ -645,10 +595,6 @@ static int axiado_uart_startup(struct uart_port *port)
 				BIT(uart->isr_bit),
 				0); /* Enable CPU side interrupt */
 
-	mutex_unlock(&uart->mutex);
-	if (restore_lock)
-		spin_lock_irq(&uart->uart_port.port.lock);
-
 	dev_info(uart->dev, "UART%d started\n", uart->index);
 	return 0;
 }
@@ -660,12 +606,7 @@ static int axiado_uart_startup(struct uart_port *port)
 static void axiado_uart_shutdown(struct uart_port *port)
 {
 	struct axiado_espi_uart *uart = port->private_data;
-	int restore_lock = 0;
 
-	if (spin_is_locked(&uart->uart_port.port.lock)) {
-		spin_unlock_irq(&uart->uart_port.port.lock);
-		restore_lock = 1;
-	}
 
 	/* Disable interrupts */
 	axiado_uart_write_cpu_reg(uart, UART_REG_IER, 0);
@@ -673,9 +614,6 @@ static void axiado_uart_shutdown(struct uart_port *port)
 	/* Mask CPU side interrupt in CSR registers */
 	regmap_update_bits(uart->regmap, uart->atu_base + ATU_ISR_MASK,
 			   BIT(uart->isr_bit), BIT(uart->isr_bit));
-
-	if (restore_lock)
-		spin_lock_irq(&uart->uart_port.port.lock);
 
 	dev_info(uart->dev, "UART%d shutdown\n", uart->index);
 }
@@ -733,12 +671,45 @@ static void axiado_uart_set_termios(struct uart_port *port,
 
 }
 
-/* UART port operations */
-static const struct uart_ops axiado_uart_ops = {
-	.startup = axiado_uart_startup,
-	.shutdown = axiado_uart_shutdown,
-	.set_termios = axiado_uart_set_termios,
-};
+static void axiado_set_mctrl(struct uart_port *port, unsigned int mctrl_data)
+{
+}
+
+static unsigned int axiado_get_mctrl(struct uart_port *port)
+{
+	return 0;
+}
+
+static void axiado_uart_stop_rx(struct uart_port *port)
+{
+}
+
+static void axiado_uart_handle_tx(struct work_struct *ws)
+{
+	struct axiado_espi_uart *uart = container_of(ws,
+					struct axiado_espi_uart, tx_work);
+	struct uart_8250_port *up = uart->uart_port;
+
+	serial8250_tx_chars(up);
+}
+
+static void axiado_uart_start_tx(struct uart_port *port)
+{
+	struct axiado_espi_uart *uart = port->private_data;
+
+	schedule_work(&uart->tx_work);
+}
+
+static unsigned int axiado_uart_tx_empty(struct uart_port *port)
+{
+
+	struct uart_8250_port *up = up_to_u8250p(port);
+	u32 lsr;
+
+	lsr = serial_in(up, UART_LSR);
+	return ((lsr & UART_LSR_BOTH_EMPTY) == UART_LSR_BOTH_EMPTY) ?
+				TIOCSER_TEMT : 0;
+}
 
 /**
  * axiado_uart_probe - Probe UART driver
@@ -749,10 +720,11 @@ static const struct uart_ops axiado_uart_ops = {
 static int axiado_uart_probe(struct platform_device *pdev)
 {
 	struct axiado_espi_uart *uart;
-	struct uart_8250_port *up;
+	struct uart_8250_port up;
 	struct device *espi_dev, *mfd_dev;
 	struct device_node *espi_np;
 	struct regmap_irq_chip_data *irq_data;
+	struct uart_ops *axiado_uart_ops;
 	int index;
 	u32 io_addr;
 	u32 fifo_size;
@@ -861,7 +833,7 @@ static int axiado_uart_probe(struct platform_device *pdev)
 		return uart->irq_cpu;
 	}
 
-	dev_info(&pdev->dev,
+	dev_dbg(&pdev->dev,
 		 "UART%d: Got virtual IRQ %d for ISR bit %u\n",
 		 index, uart->irq_cpu, uart->isr_bit);
 
@@ -881,35 +853,59 @@ static int axiado_uart_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	/* Initialize 8250 UART port */
-	up = &uart->uart_port;
-	memset(up, 0, sizeof(*up));
+	INIT_WORK(&uart->tx_work, axiado_uart_handle_tx);
 
-	up->port.dev = &pdev->dev;
-	up->port.private_data = uart;
-	up->port.type = PORT_16750;
-	up->port.iotype = UPIO_MEM32;
-	up->port.flags = UPF_BOOT_AUTOCONF | UPF_FIXED_TYPE | UPF_FIXED_PORT;
-	up->port.fifosize = cpu_fifo_size;
-	up->port.ops = &axiado_uart_ops;
-	up->port.line = index;
-	up->port.uartclk = clk_get_rate(uart->clk);
-	up->capabilities = UART_CAP_FIFO | UART_CAP_AFE;
+	/* Initialize 8250 UART port */
+	memset(&up, 0, sizeof(up));
+
+	up.port.dev = &pdev->dev;
+	up.port.private_data = uart;
+	up.port.type = PORT_16750;
+	up.port.iotype = UPIO_MEM32;
+	up.port.flags = UPF_BOOT_AUTOCONF | UPF_FIXED_TYPE | UPF_FIXED_PORT;
+	up.port.fifosize = cpu_fifo_size;
+	up.port.line = index;
+	up.port.uartclk = clk_get_rate(uart->clk);
+	up.capabilities = UART_CAP_FIFO | UART_CAP_AFE;
 
 	/* Custom register access functions, use our regmap functions */
-	up->port.serial_in = axiado_serial_in;
-	up->port.serial_out = axiado_serial_out;
-	up->port.startup = axiado_uart_startup;
-	up->port.shutdown = axiado_uart_shutdown;
-	up->port.set_termios = axiado_uart_set_termios;
+	up.port.serial_in = axiado_serial_in;
+	up.port.serial_out = axiado_serial_out;
+	up.port.set_mctrl = axiado_set_mctrl;
+	up.port.get_mctrl = axiado_get_mctrl;
+	up.port.startup = axiado_uart_startup;
+	up.port.shutdown = axiado_uart_shutdown;
+	up.port.set_termios = axiado_uart_set_termios;
 
 	/* Register with serial core */
-	ret = serial8250_register_8250_port(up);
+	ret = serial8250_register_8250_port(&up);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to register 8250 port: %d\n", ret);
 		goto err_disable_atu;
 	}
 	uart->line = ret;
+	uart->uart_port = serial8250_get_port(uart->line);
+
+	axiado_uart_ops = devm_kzalloc(&pdev->dev, sizeof(struct uart_ops),
+							GFP_KERNEL);
+	if (!axiado_uart_ops) {
+		ret = -ENOMEM;
+		goto err_port_cleanup;
+	}
+
+	/* TTY UART framework calls some of the ops functions in atomic context,
+	 * To avoid implementation of all ops functions, Only necessary ones are
+	 * implemened and rest of are copied from default uart_port.
+	 * uart_port.ops are marked as const so we can't change any pointers
+	 * directly.
+	 */
+	memcpy(axiado_uart_ops, uart->uart_port->port.ops,
+						sizeof(struct uart_ops));
+	axiado_uart_ops->tx_empty = axiado_uart_tx_empty;
+	axiado_uart_ops->stop_rx = axiado_uart_stop_rx;
+	axiado_uart_ops->start_tx = axiado_uart_start_tx;
+
+	uart->uart_port->port.ops  = axiado_uart_ops;
 
 	ret = devm_request_threaded_irq(&pdev->dev, uart->irq_cpu, NULL,
 					axiado_uart_cpu_irq_handler, IRQF_ONESHOT,
@@ -918,7 +914,7 @@ static int axiado_uart_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to request CPU side IRQ: %d\n",
 			ret);
-		goto err_disable_atu;
+		goto err_port_cleanup;
 	}
 
 	ret = regmap_update_bits(uart->regmap, uart->atu_base + ATU_ISR_MASK,
@@ -926,13 +922,13 @@ static int axiado_uart_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to unmask ISR bit %d: %d\n",
 			uart->isr_bit, ret);
-		goto err_disable_atu;
+		goto err_port_cleanup;
 	}
 
 	platform_set_drvdata(pdev, uart);
 	uart_instances[index] = uart;
 
-	dev_info(
+	dev_dbg(
 		&pdev->dev,
 		"UART driver initialized for channel %d (CPU IRQ: %d, io_addr: 0x%04x)\n",
 		index, uart->irq_cpu, io_addr);
@@ -940,6 +936,10 @@ static int axiado_uart_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "8250 AXIADO UART probe successful.\n");
 	return 0;
 
+err_port_cleanup:
+	regmap_update_bits(uart->regmap, uart->atu_base + ATU_ISR_MASK,
+			   BIT(uart->isr_bit), BIT(uart->isr_bit));
+	serial8250_unregister_port(uart->line);
 err_disable_atu:
 	axiado_uart_disable_atu(uart);
 	return ret;
@@ -969,7 +969,7 @@ static int axiado_uart_remove(struct platform_device *pdev)
 	/* Clear global array entry */
 	uart_instances[index] = NULL;
 
-	dev_info(&pdev->dev, "UART driver removed for channel %d\n", index);
+	dev_dbg(&pdev->dev, "UART driver removed for channel %d\n", index);
 	return 0;
 }
 
