@@ -17,6 +17,13 @@
 			      <&saradc 12>, <&saradc 13>, <&saradc 14>,
 			      <&saradc 15>;
 	};
+
+	update: fw-update@4A00000 {
+		compatible = "axiado,ax-fwupgrade";
+		/* Reserved memory space for the firmware upgrade */
+		reg = <0x00000000 0x04A00000 0x00000000 0x8000000>;
+		status = "okay";
+	};
 };
 
 /* GPIO bank 0 - 7 */
