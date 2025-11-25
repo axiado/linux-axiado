@@ -1373,6 +1373,17 @@ static int build_dma_sg(const struct sk_buff *skb, struct urb *urb)
 	return 1;
 }
 
+#ifdef CONFIG_AXIADO_USB_A0
+/* USB transfer length optimization to support platform specific protocols. */
+static inline int get_optimized_len(int len)
+{
+	if (len > 0x10 && !((len - 1) & 0x8))
+		len = ((len | 0x8) & 0xFFFFFFF8) + 1;
+
+	return len;
+}
+#endif
+
 netdev_tx_t usbnet_start_xmit (struct sk_buff *skb,
 				     struct net_device *net)
 {
@@ -1410,7 +1421,11 @@ netdev_tx_t usbnet_start_xmit (struct sk_buff *skb,
 	entry->dev = dev;
 
 	usb_fill_bulk_urb (urb, dev->udev, dev->out,
+#ifdef CONFIG_AXIADO_USB_A0
+			skb->data, get_optimized_len(skb->len), tx_complete, skb);
+#else
 			skb->data, skb->len, tx_complete, skb);
+#endif
 	if (dev->can_dma_sg) {
 		if (build_dma_sg(skb, urb) < 0)
 			goto drop;
