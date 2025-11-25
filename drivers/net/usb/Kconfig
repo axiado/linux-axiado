@@ -164,6 +164,13 @@ config USB_USBNET
 	  To compile this driver as a module, choose M here: the
 	  module will be called usbnet.
 
+config AXIADO_USB_A0
+	bool "Axiado USB transfer length optimization"
+	depends on USB_USBNET
+	default n
+	help
+	  Choose this option if you're using Axiado AX3000 platform.
+
 config USB_NET_AX8817X
 	tristate "ASIX AX88xxx Based USB 2.0 Ethernet Adapters"
 	depends on USB_USBNET
