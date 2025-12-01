@@ -34,11 +34,28 @@
 /* Axiado MFD Board Type */
 #define AXIADO_MFD_BOARD_TYPE 0xA818
 /* Axiado MFD Board Type String Length */
-#define AXIADO_MFD_BOARD_TYPE_LEN 9
-/* Axiado MFD_mTahoe Type */
-#define AXIADO_MFD_BOARD_TYPE_MT 0x20204d54
-/* Axiado MFD_Snowbird Type */
-#define AXIADO_MFD_BOARD_TYPE_SB 0x20205342
+#define AXIADO_MFD_BOARD_TYPE_LEN 16
+
+/*
+ * Board type lookup table.
+ * Maps board type register values to their string names.
+ */
+struct axiado_board_type {
+	u32 type;
+	const char *name;
+};
+
+static const struct axiado_board_type axiado_board_types[] = {
+	{ 0x20204D54, "SCM3003" },
+	{ 0x20205342, "SCM3002" },
+	{ 0x204D5431, "SCM3003-V1" },
+	{ 0x204D5432, "SCM3003-V2" },
+	{ 0x20534231, "SCM3002-V1" },
+	{ 0x20534232, "SCM3002-V2" },
+	{ 0x4D545332, "SCM3080-V2" },
+	{ 0x20485632, "HV2" },
+	{ 0x20485633, "HV3" },
+};
 
 /* Address Phase Encoding Bits from Axiado MFD Spec */
 #define AXIADO_MFD_ADDR_RW_BIT BIT(30)
@@ -225,20 +242,20 @@ static void axiado_mfd_print_version(struct device *dev, struct regmap *regmap)
 
 	memset(board_type, 0, AXIADO_MFD_BOARD_TYPE_LEN);
 	/*
-	 * The board type string is fixed currently on the Axiado MFD image
-	 * MT - 0x20204d54
-	 * SB - 0x20205342
+	 * Look up the board type in the lookup table.
+	 * If not found, default to "Unknown".
 	 */
-	switch (bd_type) {
-	case AXIADO_MFD_BOARD_TYPE_MT:
-		strscpy(board_type, "mTahoe", sizeof(board_type));
-		break;
-	case AXIADO_MFD_BOARD_TYPE_SB:
-		strscpy(board_type, "Snowbird", sizeof(board_type));
-		break;
-	default:
-		strscpy(board_type, "Unknown", sizeof(board_type));
-		break;
+	{
+		int i;
+		const char *name = "Unknown";
+
+		for (i = 0; i < ARRAY_SIZE(axiado_board_types); i++) {
+			if (axiado_board_types[i].type == bd_type) {
+				name = axiado_board_types[i].name;
+				break;
+			}
+		}
+		strscpy(board_type, name, sizeof(board_type));
 	}
 
 	put_unaligned_le32(firmware_version, ver);
