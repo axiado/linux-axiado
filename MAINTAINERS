@@ -3647,6 +3647,17 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/serial/axiado,espi-uart.yaml
 F:	drivers/tty/serial/8250/8250_axiado.c
 
+AXIADO IPC DRIVER
+M:	Adarsh Kumar <adarsh.kumar@axiado.com>
+M:	Sridhar Pothuganti <spothuganti@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+S:	Maintained
+F:	Documentation/devicetree/bindings/misc/axiado,ax-ipc.yaml
+F:	drivers/misc/axiado/axiado-ipc/ax-ipc.c
+F:	drivers/misc/axiado/axiado-ipc/ax-ipc.h
+F:	drivers/misc/axiado/axiado-ipc/ax-ipc-gpio.h
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
