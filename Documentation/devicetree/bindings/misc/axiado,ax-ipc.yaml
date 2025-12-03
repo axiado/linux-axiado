@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+# Copyright (c) 2025 Axiado Corporation
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/misc/axiado,ax-ipc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado IPC device
+
+maintainers:
+  - Adarsh Kumar <adarsh.kumar@axiado.com>
+  - Sridhar Pothuganti <spothuganti@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  The Axiado AX IPC block provides inter-processor communication between
+  the main CPU (A53/A55) and the secure M0/RPU core. It exposes multiple
+  memory-mapped regions containing shared memory, IPC registers, and
+  status scratchpad areas. It also uses an interrupt line for signaling
+  between processors.
+
+properties:
+  compatible:
+    const: axiado,ax-ipc
+
+  reg:
+    minItems: 6
+    maxItems: 6
+    description: |
+      List of MMIO regions used by the IPC block:
+        0. Shared memory region
+        1. TX interrupt register
+        2. RX interrupt register
+        3. Data buffer region for A53->M0 transfer
+        4. Scratchpad register for boot/status
+        5. Scratchpad/MMC partition region
+
+  memory-region:
+    description: Reserved memory for IPC shared data
+    $ref: /schemas/types.yaml#/definitions/phandle
+
+  interrupts:
+    maxItems: 1
+    description: IPC interrupt from M0 to CPU
+
+  "#interrupt-cells":
+    const: 1
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - memory-region
+
+additionalProperties: false
+
+examples:
+  - |
+    soc {
+        #address-cells = <2>;
+        #size-cells = <2>;
+
+        ipc0: m0-ipc@4000 {
+            compatible = "axiado,ax-ipc";
+
+            reg = <0x0 0x4000 0x0 0x8000>,
+                  <0x0 0x88014120 0x0 0x4>,
+                  <0x0 0x88014154 0x0 0x4>,
+                  <0x0 0x02A00000 0x0 0x100000>,
+                  <0x0 0x80620804 0x0 0x4>,
+                  <0x0 0x01500000 0x0 0x4>;
+
+            memory-region = <&shared_mem_rsvd_m0>;
+            interrupts  = <171>;
+            status = "okay";
+        };
+   };
