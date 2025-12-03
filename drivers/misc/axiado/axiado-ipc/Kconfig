@@ -1,0 +1,7 @@
+config AXIADO_IPC
+    tristate "Axiado IPC Driver"
+    help
+      Enable support for the Axiado IPC interface. This driver provides
+      a communication and control channel between the host CPU and the
+      secure M0 subsystem present on Axiado SoCs.
+      If unsure, say N.
