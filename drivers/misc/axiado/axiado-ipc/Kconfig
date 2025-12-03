@@ -1,0 +1,18 @@
+config AXIADO_IPC
+    tristate "Axiado IPC Driver"
+    help
+      Enable support for the Axiado IPC interface. This driver provides
+      a communication and control channel between the host CPU and the
+      secure M0 subsystem present on Axiado SoCs.
+      If unsure, say N.
+
+config IPC_GPIO
+    tristate "IPC based GPIO"
+    depends on AXIADO_IPC
+    default n
+    help
+      Enable GPIO functionality implemented over the Axiado IPC interface.
+      This driver allows exposing IPC-controlled GPIO pins through the
+      standard Linux GPIO subsystem. Enable this only if your platform
+      uses IPC-based GPIO.
+      If unsure, say N.
