@@ -84,7 +84,10 @@
 
 #define REG_SGPIO_STATUS_ADRS_OFFSET_128                    0x0d8
 
-
+#define MASK_CLR			0x0
+#define MASK_EN				0xDFFF
+#define STATUS_SHIFT		16
+#define OFFSET(bank, pos)	(pos + (bank * 32))
 #define GET_BANK(a)			(a / 32)
 #define GET_POS(a)			(a - (32 * GET_BANK(a)))
 #define SET_TILL_POS(reg, pos)		((reg) |= ((1 << (pos)) - 1))
