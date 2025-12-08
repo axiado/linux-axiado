@@ -44,8 +44,8 @@ struct ax3000_slice_info slice[MAX_SLICE_COUNT];
 
 static void ax3000_sgpio_set(struct gpio_chip *chip, unsigned int offset, int value)
 {
-	uint32_t bank = GET_BANK(offset);
-	uint32_t position = GET_POS(offset);
+	uint32_t bank = GET_BANK(offset/2);
+	uint32_t position = GET_POS(offset/2);
 	struct ax3000_sgpio *sgpio = gpiochip_get_data(chip);
 
 	if (value)
@@ -59,22 +59,11 @@ static void ax3000_sgpio_set(struct gpio_chip *chip, unsigned int offset, int va
 
 static int ax3000_sgpio_get(struct gpio_chip *chip, unsigned int offset)
 {
-	uint32_t bank;
-	uint32_t position;
+	uint32_t bank = GET_BANK(offset/2);
+	uint32_t position = GET_POS(offset/2);
 	int rc;
-	int direction = 0;
-	struct ax3000_sgpio *sgpio = gpiochip_get_data(chip);
 
-	if (offset >= sgpio->ngpios) {
-		offset -= sgpio->ngpios;
-		direction = 1;
-		offset += (sgpio->max_sgpio_pins - sgpio->ngpios);
-	}
-
-	bank = GET_BANK(offset);
-	position = GET_POS(offset);
-
-	if (direction)
+	if (!(offset % 2))
 		rc = IS_BIT_SET(slice[3].reg_ss[bank], position);
 	else
 		rc = IS_BIT_SET(slice[2].reg_ss[bank], position);
@@ -84,48 +73,53 @@ static int ax3000_sgpio_get(struct gpio_chip *chip, unsigned int offset)
 
 static int ax3000_sgpio_dir_in(struct gpio_chip *chip, unsigned int offset)
 {
-	struct ax3000_sgpio *sgpio = gpiochip_get_data(chip);
-
-	if (offset >= sgpio->ngpios)
+	if (!(offset % 2))
 		return 0;
 	else
-		return 1;
+		return -EINVAL;
 }
 
 static int ax3000_sgpio_dir_out(struct gpio_chip *chip, unsigned int offset,
 		int value)
 {
-	struct ax3000_sgpio *sgpio = gpiochip_get_data(chip);
-
-	if (offset < sgpio->ngpios) {
+	if (offset % 2) {
 		if (chip->set)
 			chip->set(chip, offset, value);
 		return 0;
 	} else
-		return 1;
+		return -EINVAL;
 }
 
 static irqreturn_t sgpio_irq_handler(int irq, void *arg)
 {
-	int i = 0;
-
 	struct ax3000_sgpio *sgpio = (struct ax3000_sgpio *)arg;
+	u32 status, new_value;
+	u32 changed_value;
+	int i, bit;
 
-	sgpio_reg_write(sgpio, sgpio->regs->slice_din_ss,
-			sgpio_reg_read(sgpio, sgpio->regs->slice_status));
+	/* Read-on-clear (ACK) parent cause */
+	status = sgpio_reg_read(sgpio, sgpio->regs->slice_status);
+	status >>= STATUS_SHIFT;
 
-	for (i = 0; i < sgpio->max_offset_regs; i++)
-		slice[3].reg_ss[i] = sgpio_reg_read(
-			sgpio, sgpio->regs->slice_din_ss + (i * 4));
+	for (i = 0; i < sgpio->max_offset_regs; i++) {
+		if (IS_BIT_SET(status, i)) {
+			new_value = sgpio_reg_read(sgpio,
+					sgpio->regs->slice_din_ss + (i * 4));
 
-	/* Clear Status register */
-	sgpio_reg_write(sgpio, sgpio->regs->slice_mask, 0xdfff);
+			changed_value = slice[3].reg_ss[i] ^ new_value;
+			slice[3].reg_ss[i] = new_value;
 
-	for (i = 0; i < sgpio->max_sgpio_pins; i++) {
-		if (sgpio->mask_status[i] == 1) {
-			local_irq_disable();
-			generic_handle_irq(sgpio->irq_number[i]);
-			local_irq_enable();
+			while (changed_value) {
+				bit = __ffs(changed_value);
+				changed_value &= ~BIT(bit);
+
+				if (sgpio->mask_status[OFFSET(i, bit)] == 1) {
+					int child = sgpio->irq_number[OFFSET(i, bit)];
+
+					/* This is the “fake IRQ” for gpiomon */
+					handle_nested_irq(child);
+				}
+			}
 		}
 	}
 
@@ -254,6 +248,11 @@ static int sgpio_set_irq_type(struct irq_data *d, unsigned int type)
 	return 0;
 }
 
+static void sgpio_ack_irq(struct irq_data *d)
+{
+	/* Nothing to do for software IRQ */
+}
+
 static void sgpio_mask_irq(struct irq_data *d)
 {
 	struct gpio_chip *chip;
@@ -275,8 +274,8 @@ static void sgpio_mask_irq(struct irq_data *d)
 	}
 
 	irq_num = irqd_to_hwirq(d);
-	sgpio->irq_number[irq_num] = 0;
-	sgpio->mask_status[irq_num] = 0;
+	sgpio->irq_number[irq_num/2] = 0;
+	sgpio->mask_status[irq_num/2] = 0;
 }
 
 static void sgpio_unmask_irq(struct irq_data *d)
@@ -300,8 +299,8 @@ static void sgpio_unmask_irq(struct irq_data *d)
 	}
 
 	irq_num = irqd_to_hwirq(d);
-	sgpio->irq_number[irq_num] = gpio_to_irq(sgpio->chip.base + irq_num);
-	sgpio->mask_status[irq_num] = 1;
+	sgpio->irq_number[irq_num/2] = gpio_to_irq(sgpio->chip.base + irq_num);
+	sgpio->mask_status[irq_num/2] = 1;
 }
 
 static int sgpio_probe(struct platform_device *pdev)
@@ -447,7 +446,7 @@ static int sgpio_probe(struct platform_device *pdev)
 
 	/* Set up the irqchip dynamically */
 	sgpio->irq.name = "SGPIO-IRQ";
-	sgpio->irq.irq_ack = NULL;
+	sgpio->irq.irq_ack = sgpio_ack_irq;
 	sgpio->irq.irq_mask = sgpio_mask_irq;
 	sgpio->irq.irq_unmask = sgpio_unmask_irq;
 	sgpio->irq.irq_set_type = sgpio_set_irq_type;
