@@ -1,0 +1,188 @@
+// SPDX-License-Identifier: GPL-2.0+
+ /*
+  * DTSI file for Axiado AX3000-SCM3002
+  * Copyright (c) 2025 Axiado Corporation.
+  */
+
+#include "ax3000-scm.dtsi"
+
+/ {
+	model = "Axiado AX3000-SCM3002";
+
+	update: fw-update@4A00000 {
+		compatible = "axiado,ax-fwupgrade";
+		/* Reserved memory space for the firmware upgrade */
+		reg = <0x00000000 0x04A00000 0x00000000 0x8000000>;
+		status = "okay";
+	};
+};
+
+/* GPIO bank 0 - 7 */
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&gpio2 {
+	status = "okay";
+};
+
+&gpio3 {
+	status = "okay";
+};
+
+&gpio4 {
+	status = "okay";
+};
+
+&gpio5 {
+	status = "okay";
+};
+
+&gpio6 {
+	status = "okay";
+};
+
+&gpio7 {
+	status = "okay";
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&uart1 {
+	status = "okay";
+};
+
+&uart2 {
+	status = "okay";
+};
+
+&uart3 {
+	status = "okay";
+};
+
+&usb2_0 {
+	status = "okay";
+};
+
+&usb2_1 {
+	status = "okay";
+};
+
+&emmc_phy {
+	status = "okay";
+};
+
+&sdhci0 {
+	status = "okay";
+};
+
+&spi2 {
+	status = "okay";
+	spi-bridge@0 {
+		status = "okay";
+		i2c-ssif@0 {
+			status = "okay";
+			ssif-bmc@10 {
+				status = "okay";
+			};
+		};
+	};
+};
+
+&i3c0 {
+	status = "okay";
+};
+
+&i3c1 {
+	status = "okay";
+};
+
+&i3c2 {
+	status = "okay";
+};
+
+&i3c3 {
+	status = "okay";
+};
+
+&i3c4 {
+	status = "okay";
+};
+
+&i3c5 {
+	status = "okay";
+};
+
+&i3c6 {
+	status = "okay";
+};
+
+&i3c7 {
+	status = "okay";
+};
+
+&i3c8 {
+	status = "okay";
+};
+
+&i3c9 {
+	status = "okay";
+};
+
+&i3c10 {
+	status = "okay";
+};
+
+&i3c11 {
+	status = "okay";
+};
+
+&i3c12 {
+	status = "okay";
+};
+
+&i3c13 {
+	status = "okay";
+};
+
+&i3c14 {
+	status = "okay";
+};
+
+&i3c15 {
+	status = "okay";
+};
+
+&i3c16 {
+	status = "okay";
+};
+
+&saradc {
+	status = "okay";
+};
+
+&pcie_x1 {
+	status = "okay";
+};
+
+&pcie_x2 {
+	status = "okay";
+};
+
+&mctp0 {
+	status = "okay";
+};
+
+&hdmi {
+	status = "okay";
+};
+
+&disp_ctrl {
+	status = "okay";
+};
