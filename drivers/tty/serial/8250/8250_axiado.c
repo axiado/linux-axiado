@@ -960,6 +960,7 @@ static int axiado_uart_remove(struct platform_device *pdev)
 	regmap_update_bits(uart->regmap, uart->atu_base + ATU_ISR_MASK,
 			   BIT(uart->isr_bit), BIT(uart->isr_bit));
 
+	cancel_work_sync(&uart->tx_work);
 	/* Unregister from serial core */
 	serial8250_unregister_port(uart->line);
 
