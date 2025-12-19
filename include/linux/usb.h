@@ -2051,6 +2051,16 @@ static inline int usb_translate_errors(int error_code)
 	}
 }
 
+#ifdef CONFIG_AXIADO_USB_A0
+/* USB transfer length optimization to support platform specific protocols. */
+static inline int get_optimized_len(int len)
+{
+	if (len > 0x10 && !((len - 1) & 0x8))
+		len = ((len | 0x8) & 0xFFFFFFF8) + 1;
+	return len;
+}
+#endif
+
 /* Events from the usb core */
 #define USB_DEVICE_ADD		0x0001
 #define USB_DEVICE_REMOVE	0x0002
