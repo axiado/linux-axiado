@@ -94,7 +94,11 @@ static netdev_tx_t mctp_usb_start_xmit(struct sk_buff *skb,
 
 	usb_fill_bulk_urb(urb, mctp_usb->usbdev,
 			  usb_sndbulkpipe(mctp_usb->usbdev, mctp_usb->ep_out),
+#ifdef CONFIG_AXIADO_USB_A0
+			  skb->data, get_optimized_len(skb->len),
+#else
 			  skb->data, skb->len,
+#endif
 			  mctp_usb_out_complete, skb);
 
 	rc = usb_submit_urb(urb, GFP_ATOMIC);
