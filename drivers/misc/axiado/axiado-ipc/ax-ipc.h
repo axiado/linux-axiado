@@ -154,8 +154,7 @@ struct ax_ipc_device {
 	phys_addr_t data_buf_size; /**< Size of the data buffer */
 	u32 each_buf_size; /**< Size of each data buffer */
 	void __iomem *kern_ipc_buf; /**< Kernel space IPC data buffer */
-	void __iomem *
-		shared_mem_phy_addr; /**< physical address of the share memory*/
+	phys_addr_t shared_mem_phy_addr; /**< physical address of the share memory*/
 	spinlock_t lock; /**< The spinlock for the device */
 };
 
