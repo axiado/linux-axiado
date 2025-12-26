@@ -378,6 +378,7 @@ struct i3c_hub {
 	struct delayed_work smbus_agent_polling_work;
 	bool smbus_agent_polling_active;
 #endif
+	struct i2c_client *dummy_client;
 };
 
 /* utils */
@@ -2313,6 +2314,26 @@ static void i3c_hub_delayed_work(struct work_struct *work)
 	mutex_unlock(&hub_lock);
 }
 
+/* Create a dummy I2C device for the I3C hub
+ * This can make i2cdetect tool can detect the I3C hub on I2C bus.
+ */
+static int i3c_hub_create_dummy_i2c_device(struct i3c_device *i3cdev)
+{
+	struct i2c_adapter *adap = &(i3c_dev_get_master(i3cdev->desc)->i2c);
+	struct i3c_hub *hub = i3cdev_get_drvdata(i3cdev);
+	struct i2c_board_info info = {
+		I2C_BOARD_INFO("dummy", i3cdev->desc->info.dyn_addr),
+	};
+
+	hub->dummy_client = i2c_new_client_device(adap, &info);
+	if (IS_ERR(hub->dummy_client)) {
+		pr_err("Failed to create dummy I2C device at 0x%x\n", i3cdev->desc->info.dyn_addr);
+		return PTR_ERR(hub->dummy_client);
+	}
+
+	return 0;
+}
+
 static int i3c_hub_probe(struct i3c_device *i3cdev)
 {
 	struct device *dev = &i3cdev->dev;
@@ -2390,6 +2411,12 @@ static int i3c_hub_probe(struct i3c_device *i3cdev)
 	}
 #endif
 
+	ret = i3c_hub_create_dummy_i2c_device(i3cdev);
+	if (ret) {
+		dev_err(dev, "Failed to create dummy I2C device: %d for I3C hub\n", ret);
+		goto err_free_ibi;
+	}
+
 	sprintf(hub_id, "i3c-hub-%d-%llx",
 		i3c_dev_get_master(i3cdev->desc)->bus.id,
 		i3cdev->desc->info.pid);
@@ -2412,6 +2439,11 @@ static void i3c_hub_remove(struct i3c_device *i3cdev)
 {
 	struct i3c_hub *hub = i3cdev_get_drvdata(i3cdev);
 	int i;
+
+	if (hub->dummy_client) {
+		i2c_unregister_device(hub->dummy_client);
+		hub->dummy_client = NULL;
+	}
 
 	i3c_device_disable_ibi(i3cdev);
 	i3c_device_free_ibi(i3cdev);
