@@ -551,7 +551,7 @@ static int ax_ipc_probe(struct platform_device *pdev)
 	 * use the physical address as the parameter.
 	 */
 	axdev->shared_mem_phy_addr = dts_data_ptr_resource->start;
-	dev_dbg(&pdev->dev, "axdev->shared_mem_phy_addr: %x\n",
+	dev_dbg(&pdev->dev, "axdev->shared_mem_phy_addr: %llx\n",
 		axdev->shared_mem_phy_addr);
 
 	if (!dts_data_ptr_resource) {
