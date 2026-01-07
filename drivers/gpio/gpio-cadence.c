@@ -2,13 +2,10 @@
 
 /*
  * Copyright 2017-2018 Cadence
- *
+ * Copyright (C) 2025 Axiado Corporation.
  * Authors:
  *  Jan Kotas <jank@cadence.com>
  *  Boris Brezillon <boris.brezillon@free-electrons.com>
- *
- * Copyright (C) 2025 Axiado Corporation.
- *
  */
 
 #include <linux/gpio/driver.h>
@@ -32,17 +29,24 @@
 #define CDNS_GPIO_IRQ_VALUE		0x28
 #define CDNS_GPIO_IRQ_ANY_EDGE		0x2c
 
-#define CDNS_GPIO_QUIRKS_SKIP_PINMUX_CFG	BIT(1)
+struct cdns_gpio_quirks {
+	bool skip_init;
+};
 
 struct cdns_gpio_chip {
 	struct gpio_chip gc;
 	struct clk *pclk;
 	void __iomem *regs;
 	u32 bypass_orig;
+	const struct cdns_gpio_quirks *quirks;
 };
 
-struct cdns_platform_data {
-	u32 quirks;
+static const struct cdns_gpio_quirks cdns_default_quirks = {
+	.skip_init = false,
+};
+
+static const struct cdns_gpio_quirks ax3000_gpio_quirks = {
+	.skip_init = true,
 };
 
 static int cdns_gpio_request(struct gpio_chip *chip, unsigned int offset)
@@ -106,6 +110,15 @@ static int cdns_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 
 	int_value = ioread32(cgpio->regs + CDNS_GPIO_IRQ_VALUE) & ~mask;
 	int_type = ioread32(cgpio->regs + CDNS_GPIO_IRQ_TYPE) & ~mask;
+	/*
+	 * Interrupt polarity and trigger behaviour is configured like this:
+	 *
+	 * (type, value)
+	 * (0, 0) = Falling edge triggered
+	 * (0, 1) = Rising edge triggered
+	 * (1, 0) = Low level triggered
+	 * (1, 1) = High level triggered
+	 */
 	int_any = ioread32(cgpio->regs + CDNS_GPIO_IRQ_ANY_EDGE) & ~mask;
 
 	if (type == IRQ_TYPE_LEVEL_HIGH) {
@@ -161,12 +174,15 @@ static const struct irq_chip cdns_gpio_irqchip = {
 	GPIOCHIP_IRQ_RESOURCE_HELPERS,
 };
 
-static const struct cdns_platform_data ax3000_gpio_def = {
-				.quirks = CDNS_GPIO_QUIRKS_SKIP_PINMUX_CFG, };
-
 static const struct of_device_id cdns_of_ids[] = {
-	{ .compatible = "axiado,ax3000-gpio", .data = &ax3000_gpio_def },
-	{ .compatible = "cdns,gpio-r1p02" },
+	{
+		.compatible = "axiado,ax3000-gpio",
+		.data = &ax3000_gpio_quirks
+	},
+	{
+		.compatible = "cdns,gpio-r1p02",
+		.data = &cdns_default_quirks
+	},
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, cdns_of_ids);
@@ -195,12 +211,9 @@ static int cdns_gpio_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	match = of_match_node(cdns_of_ids, pdev->dev.of_node);
-	if (match && match->data) {
-		const struct cdns_platform_data *data = match->data;
-
-		skip_pinmux_cfg = data->quirks & CDNS_GPIO_QUIRKS_SKIP_PINMUX_CFG;
-	}
+	cgpio->quirks = device_get_match_data(&pdev->dev);
+	if (!cgpio->quirks)
+		cgpio->quirks = &cdns_default_quirks;
 
 	/*
 	 * Set all pins as inputs by default, otherwise:
@@ -216,9 +229,9 @@ static int cdns_gpio_probe(struct platform_device *pdev)
 	 * from system manager, for that reason do not write/change direction
 	 * or any other register here.
 	 */
-	if (!skip_pinmux_cfg) {
+	if (!cgpio->quirks->skip_init) {
 		iowrite32(GENMASK(num_gpios - 1, 0),
-			  cgpio->regs + CDNS_GPIO_DIRECTION_MODE);
+			cgpio->regs + CDNS_GPIO_DIRECTION_MODE);
 	}
 
 	ret = bgpio_init(&cgpio->gc, &pdev->dev, 4,
@@ -291,9 +304,9 @@ static int cdns_gpio_probe(struct platform_device *pdev)
 	/*
 	 * Enable gpio outputs, ignored for input direction
 	 */
-	if (!skip_pinmux_cfg) {
+	if (!cgpio->quirks->skip_init) {
 		iowrite32(GENMASK(num_gpios - 1, 0),
-			  cgpio->regs + CDNS_GPIO_OUTPUT_EN);
+			cgpio->regs + CDNS_GPIO_OUTPUT_EN);
 		iowrite32(0, cgpio->regs + CDNS_GPIO_BYPASS_MODE);
 	}
 
