@@ -206,3 +206,11 @@
 &disp_ctrl {
 	status = "okay";
 };
+
+&hcp {
+	status = "okay";
+};
+
+&mac4 {
+	status = "okay";
+};

@@ -186,3 +186,36 @@
 &disp_ctrl {
 	status = "okay";
 };
+
+&hcp {
+	status = "okay";
+};
+
+&mac0 {
+	phy-handle = <&phy0>;
+	status = "okay";
+};
+
+&mac3 {
+	status = "okay";
+};
+
+&mac4 {
+	phy-handle = <&phy4>;
+	status = "okay";
+};
+
+&mdio {
+	phy0: phy0@0 {
+		reg = <0>;
+		compatible = "ethernet-phy-ieee802.3-c45";
+		#thermal-sensor-cells = <0>;
+		status = "okay";
+	};
+	phy4: phy4@4 {
+		reg = <4>;
+		compatible = "ethernet-phy-ieee802.3-c22";
+		#thermal-sensor-cells = <0>;
+		status = "okay";
+	};
+};
