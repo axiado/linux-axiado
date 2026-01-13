@@ -123,11 +123,6 @@
 			reg = <0x00 0x54000 0x00 0x8000>;
 			no-map;
 		};
-		shared_mem_rsvd_fwl: mem_region@34000 {
-			compatible = "shared-dma-pool";
-			reg = <0x00 0x34000 0x00 0x8000>;
-			no-map;
-		};
 	};
 
 	display-subsystem {
@@ -258,19 +253,6 @@
 			memory-region = <&shared_mem_rsvd_ml3>;
 			interrupts = <GIC_SPI 198 IRQ_TYPE_LEVEL_HIGH>;
 			LABEL = "ML3";
-			interrupt-parent = <&gic500>;
-			status = "okay";
-		};
-		ipc5: fwl-ipc@34000 {
-			compatible = "axiado,ax-ipc";
-			#interrupt-cells = <1>;
-			reg = <0x00 0x34000 0x00 0x8000>,   /* Shared mem info */
-			<0x0 0x88014150 0x0 0x4>,       /* TX intr mem info */
-			<0x0 0x84210000 0x0 0x4>,       /* RX intr mem info */
-			<0x0 0x3BF00000 0x0 0x100000>;  /* Data buffers for A53->FWL*/
-			memory-region = <&shared_mem_rsvd_fwl>;
-			interrupts = <GIC_SPI 199 IRQ_TYPE_LEVEL_HIGH>;
-			LABEL = "FWL";
 			interrupt-parent = <&gic500>;
 			status = "okay";
 		};
@@ -1638,6 +1620,90 @@
 					reg = <0>;
 					remote-endpoint = <&disp_out_hdmi>;
 				};
+			};
+		};
+
+		/* HCP (Header and Crypto Processing Engine) */
+		hcp: hcp@83000000 {
+			compatible = "axiado,ax3000-hcp";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			/*
+			 * All memory regions for the HCP subsystem:
+			 * - EIP-197 crypto engine
+			 * - SHIM registers
+			 * - PHY CSR
+			 */
+			reg = <0x0 0x83000000 0x0 0x100000>,  /* EIP-197 (1MB) */
+			      <0x0 0x83100000 0x0 0x4000>,    /* SHIM regs (16KB) */
+			      <0x0 0x87000000 0x0 0x50000>;   /* PHY CSR (320KB) */
+			reg-names = "eip197", "shim", "phy-csr";
+			/*
+			 * All interrupts for HCP:
+			 * IRQ 0: EIP-197 crypto
+			 * IRQ 1-4: Rings 0-3
+			 * IRQ 5-9: MACs 0-4
+			 */
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,  /* EIP-197 */
+			             <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,   /* Ring 0 */
+			             <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>,   /* Ring 1 */
+			             <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>,   /* Ring 2 */
+			             <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>,   /* Ring 3 */
+			             <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>,   /* MAC 0 */
+			             <GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>,   /* MAC 1 */
+			             <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>,   /* MAC 2 */
+			             <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>,   /* MAC 3 */
+			             <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;   /* MAC 4 */
+			interrupt-names = "eip197", "ring0", "ring1", "ring2", "ring3",
+			                  "mac0", "mac1", "mac2", "mac3", "mac4";
+			status = "disabled";
+
+			/* MAC 0: 10G RXAUI */
+			mac0: mac@0 {
+				compatible = "axiado,ax3000-mac";
+				reg = <0>;
+				phy-mode = "rxaui";
+				status = "disabled";
+			};
+
+			/* MAC 1: 1G SGMII */
+			mac1: mac@1 {
+				compatible = "axiado,ax3000-mac";
+				reg = <1>;
+				phy-mode = "sgmii";
+				status = "disabled";
+			};
+
+			/* MAC 2: 1G SGMII */
+			mac2: mac@2 {
+				compatible = "axiado,ax3000-mac";
+				reg = <2>;
+				phy-mode = "sgmii";
+				status = "disabled";
+			};
+
+			/* MAC 3: 1G SGMII */
+			mac3: mac@3 {
+				compatible = "axiado,ax3000-mac";
+				reg = <3>;
+				phy-mode = "sgmii";
+				status = "disabled";
+			};
+
+			/* MAC 4: 1G SGMII */
+			mac4: mac@4 {
+				compatible = "axiado,ax3000-mac";
+				reg = <4>;
+				phy-mode = "sgmii";
+				status = "disabled";
+			};
+
+			/* MDIO bus for PHY management */
+			mdio: mdio {
+				compatible = "axiado,ax3000-mdio";
+				#address-cells = <1>;
+				#size-cells = <0>;
 			};
 		};
 	};
