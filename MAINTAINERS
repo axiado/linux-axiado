@@ -3647,6 +3647,16 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/serial/axiado,espi-uart.yaml
 F:	drivers/tty/serial/8250/8250_axiado.c
 
+AXIADO HCP NETWORK AND CRYPTO DRIVER
+M:	Satya Jena <sjena@axiado.com>
+M:	Mirza Aijaz Baig <mbaig@axiado.com>
+M:	Makarand Pawagi <mpawagi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/net/axiado,ax3000-hcp.yaml
+F:	drivers/net/ethernet/axiado/
+
 AXIADO IPC DRIVER
 M:	Adarsh Kumar <adarsh.kumar@axiado.com>
 M:	Sridhar Pothuganti <spothuganti@axiado.com>
