@@ -3,10 +3,12 @@
  * CrOS EC ANX7688 HDMI->DP bridge driver
  *
  * Copyright 2020 Google LLC
+ * Copyright 2026 Axiado Corporation
  */
 
 #include <drm/drm_bridge.h>
 #include <drm/drm_print.h>
+#include <linux/gpio.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/regmap.h>
@@ -22,12 +24,39 @@
 #define ANX7688_DP_LANE_COUNT_REG	0x86
 
 #define ANX7688_VENDOR_ID		0x1f29
+#define ANX7688_VENDOR_ID2		0xaaaa
 #define ANX7688_DEVICE_ID		0x7688
 
 /* First supported firmware version (0.85) */
 #define ANX7688_MINIMUM_FW_VERSION	0x0085
 
+/* Axiado platform specific register addresses */
+#define ANX7688_I2C_ADDRESS1		0x2c
+#define ANX7688_I2C_ADDRESS2		0x38
+
+#define ANX7688_HPD_REG		0x82
+#define ANX7688_CTRL_REG2	0x83
+#define ANX7688_STATUS_REG1	0x12
+#define ANX7688_STATUS_REG2	0x62
+
+#define ANX7688_HPD_REG_VALUE		0x30
+#define ANX7688_CTRL_REG2_VALUE	0x01
+#define ANX7688_REG_TH_VALUE1	0x01
+#define ANX7688_REG_TH_VALUE2	0x04
+
+#define MAX_DELAY_COUNT 15
+
 static const struct regmap_config cros_ec_anx7688_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+};
+
+static const struct  regmap_config secondary_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+};
+
+static const struct  regmap_config tertiary_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
 };
@@ -35,8 +64,15 @@ static const struct regmap_config cros_ec_anx7688_regmap_config = {
 struct cros_ec_anx7688 {
 	struct i2c_client *client;
 	struct regmap *regmap;
+	struct i2c_client *client_sec;
+	struct regmap *regmap_sec;
+	struct i2c_client *client_ter;
+	struct regmap *regmap_ter;
 	struct drm_bridge bridge;
+	struct gpio_desc *anx_reset;
+	struct gpio_desc *anx_pwren;
 	bool filter;
+
 };
 
 static inline struct cros_ec_anx7688 *
@@ -98,10 +134,13 @@ static const struct drm_bridge_funcs cros_ec_anx7688_bridge_funcs = {
 static int cros_ec_anx7688_bridge_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
+	struct device_node *node = dev->of_node;
 	struct cros_ec_anx7688 *anx7688;
-	u16 vendor, device, fw_version;
+	u32 data;
+	u16 vendor, device, fw_version, max_count;
 	u8 buffer[4];
 	int ret;
+	u32 hpd = 0;
 
 	anx7688 = devm_kzalloc(dev, sizeof(*anx7688), GFP_KERNEL);
 	if (!anx7688)
@@ -110,6 +149,27 @@ static int cros_ec_anx7688_bridge_probe(struct i2c_client *client)
 	anx7688->client = client;
 	i2c_set_clientdata(client, anx7688);
 
+	anx7688->anx_pwren =
+		devm_gpiod_get(&client->dev, "pwren", GPIOD_OUT_HIGH);
+	if (IS_ERR(anx7688->anx_pwren))
+		dev_err(dev, "Could not get pwren gpio\n");
+
+	usleep_range(30000, 31000);
+
+	anx7688->anx_reset =
+		devm_gpiod_get(&client->dev, "reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(anx7688->anx_reset))
+		dev_err(dev, "Could not get reset gpio\n");
+
+	gpiod_set_value(anx7688->anx_reset, 0);
+	usleep_range(20000, 21000);
+	gpiod_set_value(anx7688->anx_pwren, 0);
+	usleep_range(30000, 31000);
+
+	gpiod_set_value(anx7688->anx_pwren, 1);
+	usleep_range(20000, 21000);
+	gpiod_set_value(anx7688->anx_reset, 1);
+
 	anx7688->regmap = devm_regmap_init_i2c(client, &cros_ec_anx7688_regmap_config);
 	if (IS_ERR(anx7688->regmap)) {
 		ret = PTR_ERR(anx7688->regmap);
@@ -117,6 +177,33 @@ static int cros_ec_anx7688_bridge_probe(struct i2c_client *client)
 		return ret;
 	}
 
+	anx7688->client_sec = i2c_new_dummy_device(client->adapter,
+						   ANX7688_I2C_ADDRESS1);
+	if (IS_ERR(anx7688->client_sec)) {
+		i2c_unregister_device(anx7688->client_sec);
+		return PTR_ERR(anx7688->client_sec);
+	}
+
+	anx7688->regmap_sec = devm_regmap_init_i2c(anx7688->client_sec,
+						   &secondary_regmap_config);
+	if (IS_ERR(anx7688->regmap_sec)) {
+		i2c_unregister_device(anx7688->client_sec);
+		return PTR_ERR(anx7688->regmap_sec);
+	}
+
+	anx7688->client_ter = i2c_new_dummy_device(client->adapter,
+						    ANX7688_I2C_ADDRESS2);
+	if (IS_ERR(anx7688->client_ter)) {
+		i2c_unregister_device(anx7688->client_ter);
+		return PTR_ERR(anx7688->client_ter);
+	}
+
+	anx7688->regmap_ter = devm_regmap_init_i2c(anx7688->client_ter,
+						    &tertiary_regmap_config);
+	if (IS_ERR(anx7688->regmap_ter)) {
+		i2c_unregister_device(anx7688->client_ter);
+		return PTR_ERR(anx7688->regmap_ter);
+	}
 	/* Read both vendor and device id (4 bytes). */
 	ret = regmap_bulk_read(anx7688->regmap, ANX7688_VENDOR_ID_REG,
 			       buffer, 4);
@@ -127,7 +214,8 @@ static int cros_ec_anx7688_bridge_probe(struct i2c_client *client)
 
 	vendor = (u16)buffer[1] << 8 | buffer[0];
 	device = (u16)buffer[3] << 8 | buffer[2];
-	if (vendor != ANX7688_VENDOR_ID || device != ANX7688_DEVICE_ID) {
+	if ((vendor != ANX7688_VENDOR_ID && vendor != ANX7688_VENDOR_ID2) ||
+	    device != ANX7688_DEVICE_ID) {
 		dev_err(dev, "Invalid vendor/device id %04x/%04x\n",
 			vendor, device);
 		return -ENODEV;
@@ -142,6 +230,46 @@ static int cros_ec_anx7688_bridge_probe(struct i2c_client *client)
 
 	fw_version = (u16)buffer[0] << 8 | buffer[1];
 	dev_info(dev, "ANX7688 firmware version 0x%04x\n", fw_version);
+
+	ret = regmap_write(anx7688->regmap_sec, ANX7688_CTRL_REG2,
+			   ANX7688_CTRL_REG2_VALUE);
+	if (ret) {
+		dev_err(dev, "Failed to write 0x1 in reg 0x83 of 0x2C\n");
+		return ret;
+	}
+
+	msleep(500);
+	do {
+		regmap_read(anx7688->regmap, ANX7688_STATUS_REG2, &data);
+		mdelay(1);
+		dev_info(dev, "%s: Anx7688: 0x62=>%x\n", __func__, data);
+	} while (((max_count--) >= 0) && (data != ANX7688_REG_TH_VALUE2));
+
+	ret = regmap_write(anx7688->regmap, ANX7688_STATUS_REG2, ANX7688_CTRL_REG2_VALUE);
+	if (ret) {
+		dev_err(dev, "Failed to write 0x1 in reg 0x62 of 0x28\n");
+		return ret;
+	}
+
+	max_count = MAX_DELAY_COUNT;
+
+	do {
+		regmap_read(anx7688->regmap, ANX7688_STATUS_REG1, &data);
+		mdelay(1);
+		dev_info(dev, "Anx7688: 0x12=>%x:%x\n", data, (data & ANX7688_REG_TH_VALUE1));
+	} while (((max_count--) >= 0) && ((data & ANX7688_REG_TH_VALUE1) !=
+					  ANX7688_REG_TH_VALUE1));
+	ret = of_property_read_u32(node, "force-hpd", &hpd);
+	if (ret == 0 && hpd == 1) {
+		ret = regmap_write(anx7688->regmap_ter, ANX7688_HPD_REG,
+				   ANX7688_HPD_REG_VALUE);
+		if (ret) {
+			dev_err(dev, "Failed to write 0x30 in reg 0x82 of 0x38\n");
+			return ret;
+		}
+		ret = regmap_read(anx7688->regmap_ter, ANX7688_HPD_REG, &data);
+		dev_info(dev, "After Force HPD Anx7688: %x\n", data);
+	}
 
 	anx7688->bridge.of_node = dev->of_node;
 
