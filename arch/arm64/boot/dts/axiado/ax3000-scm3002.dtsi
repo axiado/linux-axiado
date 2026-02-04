@@ -125,6 +125,19 @@
 
 &i3c7 {
 	status = "okay";
+
+	temp@48 {
+		compatible = "ti,tmp75c";
+		reg = <0x48 0x0 0x50>;
+	};
+	temp@49 {
+		compatible = "ti,tmp75c";
+		reg = <0x49 0x0 0x50>;
+	};
+	eeprom@50 {
+		compatible = "atmel,24c16";
+		reg = <0x50 0x0 0x50>;
+	};
 };
 
 &i3c8 {
