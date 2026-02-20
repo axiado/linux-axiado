@@ -137,7 +137,7 @@ static int cros_ec_anx7688_bridge_probe(struct i2c_client *client)
 	struct device_node *node = dev->of_node;
 	struct cros_ec_anx7688 *anx7688;
 	u32 data;
-	u16 vendor, device, fw_version, max_count;
+	u16 vendor, device, fw_version, max_count = MAX_DELAY_COUNT;
 	u8 buffer[4];
 	int ret;
 	u32 hpd = 0;
@@ -243,7 +243,7 @@ static int cros_ec_anx7688_bridge_probe(struct i2c_client *client)
 		regmap_read(anx7688->regmap, ANX7688_STATUS_REG2, &data);
 		mdelay(1);
 		dev_info(dev, "%s: Anx7688: 0x62=>%x\n", __func__, data);
-	} while (((max_count--) >= 0) && (data != ANX7688_REG_TH_VALUE2));
+	} while ((max_count-- > 0) && (data != ANX7688_REG_TH_VALUE2));
 
 	ret = regmap_write(anx7688->regmap, ANX7688_STATUS_REG2, ANX7688_CTRL_REG2_VALUE);
 	if (ret) {
@@ -252,12 +252,11 @@ static int cros_ec_anx7688_bridge_probe(struct i2c_client *client)
 	}
 
 	max_count = MAX_DELAY_COUNT;
-
 	do {
 		regmap_read(anx7688->regmap, ANX7688_STATUS_REG1, &data);
 		mdelay(1);
 		dev_info(dev, "Anx7688: 0x12=>%x:%x\n", data, (data & ANX7688_REG_TH_VALUE1));
-	} while (((max_count--) >= 0) && ((data & ANX7688_REG_TH_VALUE1) !=
+	} while ((max_count-- > 0) && ((data & ANX7688_REG_TH_VALUE1) !=
 					  ANX7688_REG_TH_VALUE1));
 	ret = of_property_read_u32(node, "force-hpd", &hpd);
 	if (ret == 0 && hpd == 1) {
