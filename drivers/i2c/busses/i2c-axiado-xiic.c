@@ -15,26 +15,65 @@
  * Axiado integration of the Xilinx XIIC I2C core (slave-only mode)
  */
 
+#include <linux/cpumask.h>
+#include <linux/delay.h>
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/i2c.h>
+#include <linux/io.h>
+#include <linux/interrupt.h>
+#include <linux/irq.h>
+#include <linux/irqdesc.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/errno.h>
-#include <linux/err.h>
-#include <linux/delay.h>
-#include <linux/platform_device.h>
-#include <linux/i2c.h>
-#include <linux/interrupt.h>
-#include <linux/io.h>
-#include <linux/slab.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
 #include <linux/types.h>
+#include <uapi/linux/sched/types.h>
 
 /* Local common hardware definitions */
 #include "i2c-xiic-common.h"
 
 #define DRIVER_NAME "i2c-axiado-xiic"
+
+static void set_irq_thread_props(int irq, int priority, int cpu)
+{
+	struct irq_desc *desc;
+	struct task_struct *irq_thread = NULL;
+	struct sched_param param;
+	cpumask_t mask;
+	int ret;
+
+	desc = irq_to_desc(irq);
+	if (desc)
+		irq_thread = desc->action ? desc->action->thread : NULL;
+
+	if (!irq_thread) {
+		pr_warn("IRQ %d: no thread found (is it threaded?)\n", irq);
+		return;
+	}
+
+	param.sched_priority = clamp(priority, 1, 99);
+	ret = sched_setscheduler(irq_thread, SCHED_FIFO, &param);
+	if (ret)
+		pr_warn("IRQ %d: failed to set RT priority (err=%d)\n", irq, ret);
+	else
+		pr_info("IRQ %d: RT priority set to %d\n", irq, param.sched_priority);
+
+	cpumask_clear(&mask);
+	cpumask_set_cpu(cpu, &mask);
+	ret = set_cpus_allowed_ptr(irq_thread, &mask);
+	if (ret)
+		pr_warn("IRQ %d: failed to set CPU affinity (err=%d)\n", irq, ret);
+	else
+		pr_info("IRQ %d: pinned to CPU%d\n", irq, cpu);
+
+}
 
 enum xilinx_i2c_slave_state {
 	XLNX_I2C_SLAVE_IDLE = 0,
@@ -327,6 +366,7 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 	u32 sr = 0;
 	u32 ret = 0;
 	u8 tx_byte = 0, rx_byte = 0x20;
+	static bool ssif_bmc_send_enabled = true;
 
 	if (!i2c->slave || !i2c->slave->slave_cb) {
 		dev_dbg(i2c->adap.dev.parent,
@@ -358,27 +398,18 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 			xiic_irq_clr(i2c, clr);
 			i2c->is_backend_stop = false;
 			if (sr & XIIC_SR_MSTR_RDING_SLAVE_MASK) {
-				if (i2c->slave_state == XLNX_I2C_SLAVE_IDLE) {
-					dev_warn(i2c->adap.dev.parent,
-						 "Wrong TX OP: i2c slave state = %d, sr = %x, pend = %x\n",
-						i2c->slave_state, sr, pending);
-					i2c->slave_state = XLNX_I2C_SLAVE_ERROR;
-					xiic_cr_en(i2c,
-						   XIIC_CR_TX_FIFO_RESET_MASK |
-							   XIIC_CR_NO_ACK_MASK);
-					goto out;
-				}
 				ret = i2c_slave_event(i2c->slave,
 						      I2C_SLAVE_READ_REQUESTED,
 						      &tx_byte);
 				xiic_setreg8(i2c, XIIC_DTR_REG_OFFSET, tx_byte);
+				xiic_irq_en(i2c, XIIC_INTR_TX_EMPTY_MASK);
 				i2c->slave_state =
 					XLNX_I2C_SLAVE_SEND_REQUESTED;
 				i2c->tx_length = tx_byte;
 				i2c->tx_index = 0;
 			} else {
 				/* Make sure the last transaction is done.*/
-				if (i2c->write_requested) {
+				if (i2c->write_requested && ssif_bmc_send_enabled) {
 					i2c_slave_event(i2c->slave,
 							I2C_SLAVE_STOP, NULL);
 					i2c->write_requested = false;
@@ -391,17 +422,37 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 				 * Usually, it will be read requested.
 				 */
 				if (ret) {
+					ssif_bmc_send_enabled = false;
 					xiic_cr_en(i2c,
 						   XIIC_CR_TX_FIFO_RESET_MASK |
 							   XIIC_CR_NO_ACK_MASK);
 				} else {
+					ssif_bmc_send_enabled = true;
 					xiic_cr_dis(i2c,
 						    XIIC_CR_TX_FIFO_RESET_MASK |
 							XIIC_CR_NO_ACK_MASK);
 				}
 				i2c->slave_state =
 					XLNX_I2C_SLAVE_RECV_REQUESTED;
+				xiic_irq_en(i2c, XIIC_INTR_RX_FULL_MASK);
 			}
+		} else if(pending & XIIC_INTR_RX_FULL_MASK) {
+			/* Drain all RX data until FIFO becomes empty */
+			while (!(xiic_getreg8(i2c, XIIC_SR_REG_OFFSET) &
+				XIIC_SR_RX_FIFO_EMPTY_MASK)) {
+				xiic_getreg8(i2c, XIIC_DRR_REG_OFFSET);
+			}
+
+			/* Clear RX_FULL interrupt after draining */
+			xiic_irq_clr(i2c, XIIC_INTR_RX_FULL_MASK);
+
+		} else if(pending & XIIC_INTR_TX_EMPTY_MASK){
+			/* Clear and disable the TX_EMPTY interrupt */
+			xiic_irq_clr(i2c, XIIC_INTR_TX_EMPTY_MASK);
+			xiic_irq_dis(i2c, XIIC_INTR_TX_EMPTY_MASK);
+
+			/* Reset TX FIFO to remove the empty flag */
+			xiic_cr_en(i2c, XIIC_CR_TX_FIFO_RESET_MASK);
 		}
 		break;
 
@@ -414,11 +465,14 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 			       (!(xiic_getreg8(i2c, XIIC_IISR_OFFSET) &
 				  XIIC_INTR_NAAS_MASK))) {
 				u8 val = xiic_getreg8(i2c, XIIC_DRR_REG_OFFSET);
-
-				i2c_slave_event(i2c->slave,
+				if (ssif_bmc_send_enabled)
+					i2c_slave_event(i2c->slave,
 						I2C_SLAVE_WRITE_RECEIVED, &val);
 			}
 			i2c->slave_state = XLNX_I2C_SLAVE_RECV_RECEIVED;
+		} else if(pending & XIIC_INTR_TX_EMPTY_MASK){
+			clr |= XIIC_INTR_TX_EMPTY_MASK;
+			i2c->slave_state = XLNX_I2C_SLAVE_IDLE;
 		}
 		break;
 	case XLNX_I2C_SLAVE_SEND_REQUESTED:
@@ -429,7 +483,6 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 			/* In MGX, TX_EMPTY is not triggered fast enough.
 			 * We need to send byte-by-byte.
 			 */
-
 			if ((xiic_getreg8(i2c, XIIC_SR_REG_OFFSET) &
 			     XIIC_SR_TX_FIFO_EMPTY_MASK) &&
 			    i2c->tx_index < i2c->tx_length) {
@@ -448,6 +501,14 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 				xiic_setreg8(i2c, XIIC_DTR_REG_OFFSET, val);
 				i2c->tx_index++;
 			}
+		} else if(pending & XIIC_INTR_RX_FULL_MASK) {
+			/* Drain all RX data until FIFO becomes empty */
+			while (!(xiic_getreg8(i2c, XIIC_SR_REG_OFFSET) &
+				XIIC_SR_RX_FIFO_EMPTY_MASK)) {
+				xiic_getreg8(i2c, XIIC_DRR_REG_OFFSET);
+			}
+			/* Clear RX_FULL interrupt after draining */
+			xiic_irq_clr(i2c, XIIC_INTR_RX_FULL_MASK);
 		}
 		break;
 	case XLNX_I2C_SLAVE_SEND_DONE:
@@ -490,7 +551,8 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 			/* STOP condition */
 			clr |= XIIC_INTR_NAAS_MASK | XIIC_INTR_AAS_MASK |
 			       XIIC_INTR_TX_ERROR_MASK;
-			i2c_slave_event(i2c->slave, I2C_SLAVE_STOP, NULL);
+			if (ssif_bmc_send_enabled)
+				i2c_slave_event(i2c->slave, I2C_SLAVE_STOP, NULL);
 			i2c->is_backend_stop = true;
 			i2c->write_requested = false;
 			i2c->slave_state = XLNX_I2C_SLAVE_IDLE;
@@ -501,7 +563,8 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 			if (i2c->slave_state == XLNX_I2C_SLAVE_RECV_RECEIVED &&
 			    (pending & XIIC_INTR_RX_FULL_MASK)) {
 				/* For Write -> block read (Write->Read) */
-				i2c_slave_event(i2c->slave, I2C_SLAVE_STOP,
+				if (ssif_bmc_send_enabled)
+					i2c_slave_event(i2c->slave, I2C_SLAVE_STOP,
 						NULL);
 				i2c->slave_state = XLNX_I2C_SLAVE_IDLE;
 				i2c->is_backend_stop = true;
@@ -515,7 +578,8 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 				clr |= XIIC_INTR_TX_ERROR_MASK |
 				       XIIC_INTR_TX_EMPTY_MASK |
 				       XIIC_INTR_AAS_MASK;
-				i2c_slave_event(i2c->slave, I2C_SLAVE_STOP,
+				if (ssif_bmc_send_enabled)
+					i2c_slave_event(i2c->slave, I2C_SLAVE_STOP,
 						NULL);
 				i2c->is_backend_stop = true;
 				i2c->write_requested = false;
@@ -527,7 +591,8 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 				   !(pending & XIIC_INTR_RX_FULL_MASK) &&
 				   !(pending & XIIC_INTR_TX_EMPTY_MASK)) {
 				/* Get NAAS and no pending TX & RX */
-				i2c_slave_event(i2c->slave, I2C_SLAVE_STOP,
+				if (ssif_bmc_send_enabled)
+					i2c_slave_event(i2c->slave, I2C_SLAVE_STOP,
 						NULL);
 				i2c->slave_state = XLNX_I2C_SLAVE_IDLE;
 				i2c->is_backend_stop = true;
@@ -550,7 +615,8 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 		if (i2c->slave_state == XLNX_I2C_SLAVE_SEND_PROCESSED ||
 		    i2c->slave_state == XLNX_I2C_SLAVE_SEND_REQUESTED ||
 		    i2c->slave_state == XLNX_I2C_SLAVE_SEND_DONE) {
-			i2c_slave_event(i2c->slave, I2C_SLAVE_STOP, NULL);
+			if (ssif_bmc_send_enabled)
+				i2c_slave_event(i2c->slave, I2C_SLAVE_STOP, NULL);
 			i2c->is_backend_stop = true;
 			i2c->write_requested = false;
 			i2c->slave_state = XLNX_I2C_SLAVE_IDLE;
@@ -575,7 +641,8 @@ static irqreturn_t xiic_slave_process(int irq, void *dev_id)
 				 "backend is not stopped, but no pending interrupts\n");
 			i2c->slave_state = XLNX_I2C_SLAVE_IDLE;
 			i2c->write_requested = false;
-			i2c_slave_event(i2c->slave, I2C_SLAVE_STOP, NULL);
+			if (ssif_bmc_send_enabled)
+				i2c_slave_event(i2c->slave, I2C_SLAVE_STOP, NULL);
 		}
 	}
 out:
@@ -675,6 +742,7 @@ static int xiic_i2c_slave_probe(struct platform_device *pdev)
 	int ret, irq;
 	u32 sr;
 	u32 reg_base_offset = 0;
+	u32 rt_prio, cpu;
 
 	dev_info(&pdev->dev, "I2C probe start\n");
 
@@ -750,6 +818,17 @@ static int xiic_i2c_slave_probe(struct platform_device *pdev)
 		mutex_destroy(&i2c->lock);
 		return ret;
 	}
+
+	/* Defaults if DT props missing */
+	rt_prio = 0;          /* 0 => don't change priority */
+	cpu = UINT_MAX;       /* UINT_MAX => don't pin */
+
+	of_property_read_u32(pdev->dev.of_node, "axiado,irq-rt-priority", &rt_prio);
+	of_property_read_u32(pdev->dev.of_node, "axiado,irq-cpu", &cpu);
+
+	if (rt_prio || cpu != UINT_MAX)
+		set_irq_thread_props(irq, rt_prio ? rt_prio : 60,
+				     cpu != UINT_MAX ? cpu : 0);
 
 	dev_info(i2c->dev, "I2C probe completed\n");
 	return 0;

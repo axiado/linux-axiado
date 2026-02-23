@@ -28,6 +28,21 @@ properties:
   interrupts:
     maxItems: 1
 
+  axiado,irq-rt-priority:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      Real-time SCHED_FIFO priority for the threaded IRQ handler.
+      Valid range is 1–99. If omitted, a default priority is used.
+    minimum: 1
+    maximum: 99
+
+  axiado,irq-cpu:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      CPU index (0-based) to pin the IRQ worker thread to.
+      If omitted, the driver will not override CPU affinity.
+    minimum: 0
+
 required:
   - compatible
   - reg
