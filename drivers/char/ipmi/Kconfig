@@ -130,6 +130,17 @@ config AXIADO_KCS_IPMI_BMC
 	  The driver implements the BMC side of the KCS contorller, it
 	  provides the access of KCS IO space for BMC side.
 
+config ESPI_KCS_IPMI_BMC
+	depends on ARCH_AXIADO || COMPILE_TEST
+	select IPMI_KCS_BMC
+	tristate "ESPI KCS IPMI BMC driver"
+	help
+	  Provides a driver for the KCS (Keyboard Controller Style) IPMI
+	  interface found on AX Soc's.
+
+	  The driver implements the BMC side of the KCS contorller, it
+	  provides the access of KCS IO space for BMC side.
+
 config NPCM7XX_KCS_IPMI_BMC
 	depends on ARCH_NPCM || COMPILE_TEST
 	select IPMI_KCS_BMC
@@ -208,6 +219,10 @@ config SSIF_IPMI_BMC
 
 	  The driver implements the BMC side of the SMBus system
 	  interface (SSIF).
+
+config SEPARATE_SSIF_POSTCODES
+	bool "Separate ipmi post codes writes to another channel"
+	depends on SSIF_IPMI_BMC
 
 config IPMB_DEVICE_INTERFACE
 	tristate 'IPMB Interface handler'
