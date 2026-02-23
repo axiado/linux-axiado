@@ -420,6 +420,9 @@
 					interrupt-parent = <&gpio6>;
 					interrupts = <11 IRQ_TYPE_LEVEL_HIGH>; /* GPIO_203 I2C slave interrupt */
 					clock-frequency = <100000>;
+					/* Axiado-specific IRQ thread tuning */
+					axiado,irq-rt-priority = <90>; /* 1..99, SCHED_FIFO */
+					axiado,irq-cpu = <2>; /* pin threaded IRQ to CPU2 */
 					status = "disabled";
 					ssif-bmc@10 {
 						compatible = "ssif-bmc";
