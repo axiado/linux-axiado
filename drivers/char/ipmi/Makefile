@@ -13,6 +13,8 @@ ifdef CONFIG_PARISC
 ipmi_si-y += ipmi_si_parisc.o
 endif
 
+ccflags-y += -I $(srctree)/drivers/soc/axiado/
+
 obj-$(CONFIG_IPMI_HANDLER) += ipmi_msghandler.o
 obj-$(CONFIG_IPMI_DEVICE_INTERFACE) += ipmi_devintf.o
 obj-$(CONFIG_IPMI_SI) += ipmi_si.o
@@ -29,6 +31,7 @@ obj-$(CONFIG_IPMI_KCS_BMC_CDEV_IPMI) += kcs_bmc_cdev_ipmi.o
 obj-$(CONFIG_IPMI_KCS_BMC_CDEV_RAW) += kcs_bmc_cdev_raw.o
 obj-$(CONFIG_ASPEED_BT_IPMI_BMC) += bt-bmc.o
 obj-$(CONFIG_ASPEED_KCS_IPMI_BMC) += kcs_bmc_aspeed.o
+obj-$(CONFIG_ESPI_KCS_IPMI_BMC) += kcs_bmc_espi.o
 obj-$(CONFIG_AXIADO_KCS_IPMI_BMC) += kcs_bmc_axiado.o
 obj-$(CONFIG_NPCM7XX_KCS_IPMI_BMC) += kcs_bmc_npcm7xx.o
 obj-$(CONFIG_IPMB_DEVICE_INTERFACE) += ipmb_dev_int.o
