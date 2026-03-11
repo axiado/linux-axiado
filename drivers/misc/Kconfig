@@ -572,7 +572,6 @@ config MISC_AXIADO
 
 
 if MISC_AXIADO
-source "drivers/misc/axiado/upgrade/Kconfig"
 source "drivers/misc/axiado/axiado-ipc/Kconfig"
 endif
 
