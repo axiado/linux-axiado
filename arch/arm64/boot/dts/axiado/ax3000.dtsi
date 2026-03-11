@@ -1706,6 +1706,55 @@
 				#size-cells = <0>;
 			};
 		};
+
+		ax_logger_sysmgr: ax-log@800000 {
+			compatible = "axiado,ax-logger";
+			reg = <0x00 0x800000 0x00 0xfa00>;
+			node-name = "log-sysmgr";
+		};
+
+		ax_logger_ml_0: ax-log@900000 {
+			compatible = "axiado,ax-logger";
+			reg = <0x00 0x900000 0x00 0xfa00>;
+			node-name = "log-ml-0";
+		};
+
+		ax_logger_ml_1: ax-log@A00000 {
+			compatible = "axiado,ax-logger";
+			reg = <0x00 0xA00000 0x00 0xfa00>;
+			node-name = "log-ml-1";
+		};
+
+		ax_logger_ml_2: ax-log@B00000 {
+			compatible = "axiado,ax-logger";
+			reg = <0x00 0xB00000 0x00 0xfa00>;
+			node-name = "log-ml-2";
+		};
+
+		ax_logger_ml_3: ax-log@C00000 {
+			compatible = "axiado,ax-logger";
+			reg = <0x00 0xC00000 0x00 0xfa00>;
+			node-name = "log-ml-3";
+		};
+
+		ax_logger_fwl: ax-log@D00000 {
+			compatible = "axiado,ax-logger";
+			reg = <0x00 0xD00000 0x00 0xfa00>;
+			node-name = "log-fwl";
+		};
+
+		ax_logger_svt: ax-log@E00000 {
+			compatible = "axiado,ax-logger";
+			reg = <0x00 0xE00000 0x00 0xfa00>;
+			node-name = "log-svt";
+		};
+
+		ax_board_info: board-info@80620808 {
+			compatible = "axiado,board-id";
+			reg = <0x0 0x80620808 0x0 0x4>;
+			status = "okay";
+		};
+
 	};
 
 	timer {
