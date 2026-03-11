@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
+%YAML 1.2
+---
+
+$id: http://devicetree.org/schemas/soc/axiado/axiado,ax3000-sysutils.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado AX3000 Sysutils (Logger, Firmware Upgrade, Board ID)
+
+maintainers:
+  - Sammai Chakravarthy <schakravarthy@axiado.com>
+  - Sridhar Pothuganti <spothuganti@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  Unified sysutils driver for the Axiado AX3000 SoC.
+
+select:
+  properties:
+    compatible:
+      enum:
+        - axiado,ax-logger
+        - axiado,ax-fwupgrade
+        - axiado,board-id
+
+properties:
+  compatible:
+    enum:
+      - axiado,ax-logger
+      - axiado,ax-fwupgrade
+      - axiado,board-id
+
+  reg:
+    description: Base address and size of memory-mapped region.
+    maxItems: 1
+
+  node-name:
+    description: Optional logger node name.
+    $ref: /schemas/types.yaml#/definitions/string
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+
+examples:
+  - |
+    ax_logger_sysmgr: ax-log@800000 {
+        compatible = "axiado,ax-logger";
+        reg = <0x0 0x800000 0x0 0xfa00>;
+        node-name = "log-sysmgr";
+    };
+
+  - |
+    ax_board_info: board-info@80620808 {
+        compatible = "axiado,board-id";
+        reg = <0x0 0x80620808 0x0 0x4>;
+    };
+
+  - |
+    update: fw-update@4a00000 {
+        compatible = "axiado,ax-fwupgrade";
+        reg = <0x0 0x04a00000 0x0 0x08000000>;
+    };
