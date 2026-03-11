@@ -3666,6 +3666,15 @@ F:	Documentation/devicetree/bindings/misc/axiado,ax-ipc.yaml
 F:	drivers/misc/axiado/axiado-ipc/ax-ipc.c
 F:	drivers/misc/axiado/axiado-ipc/ax-ipc.h
 
+AXIADO SYSUTILS DRIVER
+M:	Sammai Chakravarthy <schakravarthy@axiado.com>
+M:	Sridhar Pothuganti <spothuganti@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+S:	Maintained
+F:	Documentation/devicetree/bindings/soc/axiado,axiado,ax3000-sysutils.yaml
+F:	drivers/soc/axiado/axiado-sysutils.c
+F:	drivers/soc/axiado/axiado-sysutils.h
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
