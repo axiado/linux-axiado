@@ -1,5 +1,0 @@
-config AXIADO_TCU_UPGRADE
-	tristate "AXIADO TCU Firmware Upgrade driver"
-	default n
-	help
-	  Axiado TCU Firmware upgrade driver

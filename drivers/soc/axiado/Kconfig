@@ -121,6 +121,17 @@ config AXIADO_ESPI_SNOOP
 
 	  If unsure, say N.
 
+config AXIADO_SYSUTILS
+	tristate "Axiado unified sysutils driver"
+	depends on OF && HAS_IOMEM
+	default y if SOC_AXIADO
+	help
+	  Unified driver providing which provides the functionalities of
+	  logger, firmware-upgrade and Boardinfo.The driver exposes
+	  Character device interface for logger access, Memory-mapped
+	  interface for firmware upgrade and Sysfs attributes for
+	  board ID and board name
+
 endif # SOC_AXIADO
 
 endmenu
