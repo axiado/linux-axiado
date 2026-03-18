@@ -118,6 +118,7 @@ struct ssif_bmc_ctx {
 	unsigned long response_timeout;
 	struct gpio_desc *alert;
 	u32 pulse_width;
+	struct work_struct alert_work;
 #ifdef CONFIG_SEPARATE_SSIF_POSTCODES
 	struct miscdevice       miscdev_post;
 	spinlock_t              lock_post_rd;
@@ -172,6 +173,15 @@ static const char *state_to_string(enum ssif_state state)
 	default:
 		return "SSIF_STATE_UNKNOWN";
 	}
+}
+
+static void ssif_alert_work(struct work_struct *work)
+{
+	struct ssif_bmc_ctx *ssif_bmc =
+		container_of(work, struct ssif_bmc_ctx, alert_work);
+
+	if (!IS_ERR(ssif_bmc->alert))
+		gpiod_set_value_cansleep(ssif_bmc->alert, 0);
 }
 
 static ssize_t ssif_bmc_read(struct file *file, char __user *buf, size_t count_in, loff_t *ppos)
@@ -328,13 +338,13 @@ static ssize_t ssif_bmc_write(struct file *file, const char __user *buf, size_t 
 	ssif_bmc->busy = false;
 	if (!IS_ERR(ssif_bmc->alert)) {
 		//if gpio is already asserted toggle it
-		if (gpiod_get_value(ssif_bmc->alert))
+		if (gpiod_get_value_cansleep(ssif_bmc->alert))
 		{
-			gpiod_set_value(ssif_bmc->alert, 0);
+			gpiod_set_value_cansleep(ssif_bmc->alert, 0);
 			udelay(ssif_bmc->pulse_width);
 		}
 
-		gpiod_set_value(ssif_bmc->alert, 1);
+		gpiod_set_value_cansleep(ssif_bmc->alert, 1);
 	}
 
 	return (ret < 0) ? ret : count;
@@ -692,7 +702,7 @@ static void process_smbus_cmd(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 
 	if (*val == SSIF_IPMI_SINGLEPART_WRITE || *val == SSIF_IPMI_MULTIPART_WRITE_START) {
 		if (!IS_ERR(ssif_bmc->alert))
-			gpiod_set_value(ssif_bmc->alert, 0);
+			schedule_work(&ssif_bmc->alert_work);
 		/* This is new request, flip aborting flag if set */
 		if (ssif_bmc->aborting)
 			ssif_bmc->aborting = false;
@@ -750,7 +760,7 @@ static void on_read_requested_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 		*val = ssif_bmc->part_buf.length;
 
 	if (!IS_ERR(ssif_bmc->alert))
-		gpiod_set_value(ssif_bmc->alert, 0);
+		schedule_work(&ssif_bmc->alert_work);
 }
 
 static void on_read_processed_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
@@ -919,6 +929,7 @@ static int ssif_bmc_probe(struct i2c_client *client)
 	ssif_bmc = devm_kzalloc(&client->dev, sizeof(*ssif_bmc), GFP_KERNEL);
 	if (!ssif_bmc)
 		return -ENOMEM;
+	INIT_WORK(&ssif_bmc->alert_work, ssif_alert_work);
 
 	/* Request GPIO for alerting the host that response is ready */
 	ssif_bmc->alert = devm_gpiod_get(&client->dev, "alert", GPIOD_OUT_LOW);
@@ -987,7 +998,7 @@ static int ssif_bmc_probe(struct i2c_client *client)
 	}
 
 	if (!IS_ERR(ssif_bmc->alert))
-		gpiod_set_value(ssif_bmc->alert, 0);
+		gpiod_set_value_cansleep(ssif_bmc->alert, 0);
 	device_create_file(&client->dev, &dev_attr_ssif_timeout);
 	return ret;
 }
@@ -1003,7 +1014,7 @@ static void ssif_bmc_remove(struct i2c_client *client)
 	kfifo_free(&ssif_bmc->fifo_post);
 	misc_deregister(&ssif_bmc->miscdev_post);
 #endif //CONFIG_SEPARATE_SSIF_POSTCODES
-
+	cancel_work_sync(&ssif_bmc->alert_work);
 	device_remove_file(&client->dev, &dev_attr_ssif_timeout);
 }
 
