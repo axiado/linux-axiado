@@ -302,7 +302,6 @@ static ssize_t ssif_bmc_write(struct file *file, const char __user *buf, size_t 
 	struct ssif_bmc_ctx *ssif_bmc = to_ssif_bmc(file);
 	struct ipmi_ssif_msg msg;
 	unsigned long flags;
-	ssize_t ret;
 	ktime_t delta;
 	ktime_t now;
 	s64 timer;
@@ -347,7 +346,7 @@ static ssize_t ssif_bmc_write(struct file *file, const char __user *buf, size_t 
 		gpiod_set_value_cansleep(ssif_bmc->alert, 1);
 	}
 
-	return (ret < 0) ? ret : count;
+	return count;
 }
 
 static int ssif_bmc_open(struct inode *inode, struct file *file)
