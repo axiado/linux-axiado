@@ -1,0 +1,252 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * DTSI file for Axiado SCM3080
+ * Copyright (c) 2026 Axiado Corporation.
+ */
+
+#include "ax3000-scm.dtsi"
+
+/ {
+	model = "Axiado AX3080-SCM3080-MT";
+
+	update: fw-update@4A00000 {
+		compatible = "axiado,ax-fwupgrade";
+		/* Reserved memory space for the firmware upgrade */
+		reg = <0x00000000 0x04A00000 0x00000000 0x8000000>;
+		status = "okay";
+	};
+};
+
+/* GPIO bank 0 - 7 */
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&gpio2 {
+	status = "okay";
+};
+
+&gpio3 {
+	status = "okay";
+};
+
+&gpio4 {
+	status = "okay";
+};
+
+&gpio5 {
+	status = "okay";
+};
+
+&gpio6 {
+	status = "okay";
+};
+
+&gpio7 {
+	status = "okay";
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&uart1 {
+	status = "okay";
+};
+
+&uart2 {
+	status = "okay";
+};
+
+&uart3 {
+	status = "okay";
+};
+
+&emmc_phy {
+	status = "okay";
+};
+
+&sdhci0 {
+	status = "okay";
+};
+
+&spi2 {
+	status = "okay";
+};
+
+&i3c7 {
+	status = "okay";
+
+	temp@48 {
+		compatible = "tmp75";
+		reg = <0x48 0x0 0x50>;
+	};
+
+	eeprom@50 {
+		compatible = "atmel,24c16";
+		reg = <0x50 0x0 0x50>;
+	};
+
+	analogix_i2c@28{
+		compatible ="google,cros-ec-anx7688";
+		reg = <0x28 0x0 0x50>;
+		pwren-gpios = <&gpio1 7 0x0>;
+		reset-gpios = <&gpio1 9 0x0>;
+		force-hpd = <1>;
+	};
+
+	analogix_i2c1@2c {
+		compatible = "dummy";
+		reg = <0x2c 0x0 0x50>;
+	};
+
+	analogix_i2c2@38 {
+		compatible = "dummydev";
+		reg = <0x38 0x0 0x50>;
+	};
+
+};
+
+&i3c15 {
+	status = "okay";
+
+	initial-role = "primary";
+	#address-cells = <3>;
+	#size-cells = <0>;
+	i2c-scl-hz = <100000>;
+	i3c-scl-hz = <400000>;
+	status = "okay";
+	/delete-property/ disable-ibir;
+	disable-ibir-error;
+	disable-ctrl-halt;
+	disable-mst-abort;
+	skip-payload-inc;
+
+	i2c_rnhub: hub@70,4cdaf6e7823  {
+		compatible = "renesas,rg3mxx";
+		dcr = /bits/ 8 <0xC2>;
+		bcr = /bits/ 8 <0x16>;
+		reg = <0x70 0x4cc 0x00>;
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		i2c_rnhub_cp: control-port {
+			port-name = "CP0";
+			io-microvolt = <1800000>;
+			vio-source = "external";
+		};
+
+		i2c_rnhub_tg0: target-group-0 {
+			io-microvolt = <1800000>;
+			io-internal-pullups-ohms = <2000>;
+			vio-source = "internal";
+		};
+
+		i2c_rnhub_tg1: target-group-1 {
+			io-microvolt = <1800000>;
+			io-internal-pullups-ohms = <2000>;
+			vio-source = "internal";
+		};
+
+		i2c_rnhub_p0: target-port@0 {
+			compatible = "i3c-hub-smbus";
+			reg = <0>;
+		};
+
+		i2c_rnhub_p1: target-port@1 {
+			compatible = "i3c-hub-smbus";
+			reg = <1>;
+		};
+
+		i2c_rnhub_p2: target-port@2 {
+			compatible = "i3c-hub-smbus";
+			reg = <2>;
+		};
+
+		i2c_rnhub_p3: target-port@3 {
+			compatible = "i3c-hub-smbus";
+			reg = <3>;
+		};
+
+		i2c_rnhub_p4: target-port@4 {
+			compatible = "i3c-hub-smbus";
+			reg = <4>;
+		};
+
+		i2c_rnhub_p5: target-port@5 {
+			compatible = "i3c-hub-smbus";
+			reg = <5>;
+		};
+
+		i2c_rnhub_p6: target-port@6 {
+			compatible = "i3c-hub-smbus";
+			reg = <6>;
+		};
+
+		i2c_rnhub_p7: target-port@7 {
+			compatible = "i3c-hub-smbus";
+			reg = <7>;
+		};
+	};
+};
+
+&usb3_0 {
+	compatible = "axiado,ax3000-udc-gen3";
+	status = "okay";
+};
+
+&usb3_1 {
+	status = "okay";
+};
+
+&pcie_x1 {
+	status = "okay";
+};
+
+&pcie_x2 {
+	status = "okay";
+};
+
+&mctp0 {
+	status = "okay";
+};
+
+&hdmi {
+	status = "okay";
+};
+
+&disp_ctrl {
+	status = "okay";
+};
+
+&hcp {
+	status = "okay";
+};
+
+&mac4 {
+	status = "okay";
+};
+
+&axiado_mfd {
+	/delete-property/ interrupt-parent;
+	/delete-property/ interrupts;
+
+	status = "okay";
+	i2c-ssif@0 {
+		status = "okay";
+		ssif-bmc@10 {
+			status = "okay";
+		};
+	};
+};
+
+&mfd_sgpio0 {
+	status = "okay";
+	ngpios = <128>;
+};
+
