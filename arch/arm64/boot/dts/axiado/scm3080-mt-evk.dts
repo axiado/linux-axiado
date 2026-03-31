@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * DTS file for Axiado SCM3080-evk
+ * Copyright (c) 2026 Axiado Corporation.
+ */
+
+#include "scm3080-mt.dtsi"
+
+/ {
+	compatible = "axiado,ax3000-evk", "axiado,ax3000";
+
+	aliases {
+		i2c7 = &i3c7;
+		i2c61 = &i3c15;
+	};
+};
+
