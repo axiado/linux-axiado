@@ -1146,7 +1146,6 @@
 		usb2_2: usb@81200000 {
 			compatible = "axiado,ax3000-udc";
 			reg = <0x00 0x81200000 0x00 0x100000>;
-			reg-names = "mmio";
 			interrupt-parent = <&gic500>;
 			interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
 			status = "disabled";
@@ -1155,7 +1154,6 @@
 		usb2_3: usb@81300000 {
 			compatible = "axiado,ax3000-udc";
 			reg = <0x00 0x81300000 0x00 0x100000>;
-			reg-names = "mmio";
 			interrupt-parent = <&gic500>;
 			interrupts = <GIC_SPI 22 IRQ_TYPE_LEVEL_HIGH>;
 			status = "disabled";
