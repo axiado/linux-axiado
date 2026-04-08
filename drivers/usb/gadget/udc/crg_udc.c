@@ -4401,10 +4401,10 @@ static int crg_udc_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	crg_udc->mmio_virt_base = devm_platform_ioremap_resource_byname(pdev, "mmio");
-	if (!crg_udc->mmio_virt_base) {
+	crg_udc->mmio_virt_base = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(crg_udc->mmio_virt_base)) {
 		dev_err(&pdev->dev, "mmio ioremap failed\n");
-		return -ENOMEM;
+		return PTR_ERR(crg_udc->mmio_virt_base);
 	}
 
 	/* set controller device role*/
