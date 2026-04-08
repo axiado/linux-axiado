@@ -126,7 +126,6 @@
 
 &usb3_1 {
 	compatible = "axiado,ax3000-udc-gen3";
-	reg-names = "mmio";
 	status = "okay";
 };
 
