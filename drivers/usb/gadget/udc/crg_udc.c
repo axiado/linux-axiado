@@ -3907,7 +3907,8 @@ int g_dnl_board_usb_cable_connected(struct crg_gadget_dev *crg_udc)
 				crg_udc->device_state = USB_STATE_POWERED;
 			}
 		}
-		return 1;
+		if (cnt == STATE_USB_LINK_STABLE)
+			return 1;
 	}
 
 	dev_dbg(crg_udc->dev, "%s no power, portsc[0x%p]=0x%x\n", __func__,
