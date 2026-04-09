@@ -7,6 +7,7 @@
 
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/gpio/gpio.h>
 
 /memreserve/ 0x3c0013a0 0x00000008;	/* cpu-release-addr */
 / {
@@ -427,6 +428,9 @@
 					ssif-bmc@10 {
 						compatible = "ssif-bmc";
 						reg = <0x10>;
+						alert-gpio = <&mfd_sgpio0 217 GPIO_ACTIVE_LOW>;
+						timeout_ms = <4995>;
+						pulse_width_us = <5>;
 						status = "disabled";
 					};
 				};
