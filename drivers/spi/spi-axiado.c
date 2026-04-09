@@ -888,6 +888,21 @@ static int ax_spi_remove(struct platform_device *pdev)
 {
 	struct spi_controller *ctlr = platform_get_drvdata(pdev);
 	struct ax_spi *xspi = spi_controller_get_devdata(ctlr);
+	int irq = platform_get_irq(pdev, 0);
+
+	/* Disable interrupts in hardware before unregistering the controller.
+	 * This prevents IRQ handlers from running after the controller is
+	 * unregistered, which could cause use-after-free errors.
+	 */
+	if (irq > 0 && xspi->regs) {
+		ax_spi_write(xspi, AX_SPI_IMR, AX_SPI_IMR_CLR);
+		ax_spi_write(xspi, AX_SPI_ISR, AX_SPI_ISR_CLR);
+		/* Synchronize to ensure any pending IRQ handlers complete */
+		synchronize_irq(irq);
+	} else if (irq < 0) {
+		/* IRQ not available or error getting IRQ, skip IRQ cleanup */
+		dev_dbg(&pdev->dev, "IRQ not available, skipping IRQ cleanup\n");
+	}
 
 	spi_unregister_controller(ctlr);
 
