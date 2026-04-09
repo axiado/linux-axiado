@@ -554,15 +554,25 @@ static int axiado_mfd_spi_probe(struct spi_device *spi)
 	spi_set_drvdata(spi, mfd);
 
 	/* Populate child devices from Device Tree */
-	return devm_of_platform_populate(dev);
+	ret = of_platform_populate(dev->of_node, NULL, NULL, dev);
+	if (ret) {
+		dev_err(dev, "Failed to populate child devices: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
 }
 
 static void axiado_mfd_spi_remove(struct spi_device *spi)
 {
-	dev_info(&spi->dev, "Removing Axiado MFD SPI driver\n");
+	struct axiado_mfd_data *mfd = spi_get_drvdata(spi);
+
+	dev_dbg(&spi->dev, "Removing Axiado MFD SPI driver\n");
+
+	if (mfd)
+		of_platform_depopulate(&spi->dev);
 
 #if IS_ENABLED(CONFIG_MFD_AXIADO_SPI_DEBUG_FS)
-	struct axiado_mfd_data *mfd = spi_get_drvdata(spi);
 	/* Remove debugfs interface */
 	if (mfd && mfd->debugfs_dir) {
 		debugfs_remove_recursive(mfd->debugfs_dir);
