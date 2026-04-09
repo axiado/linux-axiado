@@ -728,10 +728,17 @@
 					/* LTPI - I2C Echo support */
 					ltpi-support-i2c-echo;
 					ltpi-support-uart0;
-					/* Supports maximum of 128 pins */
-					ngpios = <128>;
-					dout-init = <0x00000000 0x00000000 0x00000000 0x00000000>;
 					status = "disabled";
+
+					nl-gpio {
+						ngpios = <128>;
+						dout-init = <0x00000000 0x00000000 0x00000000 0x00000000>;
+					};
+
+					ll-gpio {
+						ngpios = <32>;
+						dout-init = <0x00000000>;
+					};
 				};
 				mfd_espi: espi@c000 {
 					compatible = "axiado,ax3000-espi-regmap";
