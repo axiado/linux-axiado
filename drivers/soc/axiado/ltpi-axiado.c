@@ -26,6 +26,7 @@
 #include <linux/of_irq.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
+#include <linux/irqdomain.h>
 
 #ifdef CONFIG_AXIADO_LTPI_REGMAP
 #include <linux/regmap.h>
@@ -36,6 +37,10 @@
 #endif
 
 #include "ltpi-axiado.h"
+
+static int param_nl_ngpios = -1;
+static long param_nl_gpio_vals[MAX_BANKS];
+static int param_nl_num_gpio_args = 0;
 
 /**
  * update_bank - Update a bank value in the destination array
@@ -405,7 +410,6 @@ static int ltpi_probe(struct platform_device *spi)
 #ifdef CONFIG_AXIADO_LTPI_REGMAP
 	u32 reg_base_offset = 0;
 #endif
-
 	ltpi = devm_kzalloc(&spi->dev, sizeof(*ltpi), GFP_KERNEL);
 	if (!ltpi)
 		return -ENOMEM;
@@ -440,11 +444,16 @@ static int ltpi_probe(struct platform_device *spi)
 #ifdef CONFIG_AXIADO_LTPI_REGMAP
 	}
 #endif
-
-	rc = device_property_read_u32(&spi->dev, "ngpios", &ltpi->lines);
-	if (rc < 0) {
-		dev_err(&spi->dev, "could not read ngpios property\n");
-		return -EINVAL;
+	if (param_nl_ngpios == -1) {
+		rc = device_property_read_u32(&spi->dev, "ngpios", &ltpi->lines);
+		if (rc < 0) {
+			dev_err(&spi->dev, "could not read ngpios property\n");
+			return -EINVAL;
+		}
+		dev_info(&spi->dev, "Using DTS ngpios = %d\n", ltpi->lines);
+	} else {
+		ltpi->lines = param_nl_ngpios;
+		dev_info(&spi->dev, "Using parameter ngpios = %d\n", ltpi->lines);
 	}
 
 	if (ltpi->lines > MAX_GPIO_PINS) {
@@ -483,6 +492,12 @@ static int ltpi_probe(struct platform_device *spi)
 		return rc;
 	}
 
+	/* module parameter first */
+	if (param_nl_num_gpio_args == ltpi->num_banks) {
+		for (i = 0; i < ltpi->num_banks; i++)
+			update_bank(ltpi->outputs_cache, i, param_nl_gpio_vals[i]);
+	}
+
 	for (i = 0; i < ltpi->num_banks; i++) {
 		ltpi_reg_write(ltpi, REG_LTPI_DO_ADRS_OFFSET + (i * 4),
 			       ltpi->outputs_cache[i]);
@@ -508,7 +523,7 @@ static int ltpi_probe(struct platform_device *spi)
 	mutex_init(&ltpi->lock);
 
 	ltpi->irq_domain = irq_domain_create_simple(spi->dev.fwnode,
-						    ltpi->lines, ltpi->lines,
+						    ltpi->lines, 0,
 						    &ltpi_irq_domain_ops, ltpi);
 	if (!ltpi->irq_domain)
 		return -ENOMEM;
@@ -575,10 +590,19 @@ static int ltpi_probe(struct platform_device *spi)
 static int ltpi_remove(struct platform_device *spi)
 {
 	struct ax3000_ltpi *ltpi = platform_get_drvdata(spi);
+	int hwirq;
 
 #ifdef CONFIG_AXIADO_LTPI_DEBUGFS
 	debugfs_remove_recursive(ltpi->debugfs_root);
 #endif
+	for (hwirq = 0; hwirq < ltpi->lines; hwirq++) {
+		unsigned int virq = irq_find_mapping(ltpi->irq_domain, hwirq);
+		if (virq) {
+			disable_irq_nosync(virq);
+			irq_dispose_mapping(virq);
+		}
+	}
+
 	irq_domain_remove(ltpi->irq_domain);
 	return 0;
 }
@@ -616,6 +640,19 @@ static void __exit ax_ltpi_exit(void)
 
 late_initcall(ax_ltpi_init);
 module_exit(ax_ltpi_exit);
+
+/**
+ * Module Parameters
+ * @nl_ngpios: Specify the total number of NL GPIOs.
+ * @nl_gpio_vals: A comma-separated list of initial values for the GPIO banks.
+ * 		Each value corresponds to a 32-bit bank.
+ * 		(Chunk 0: GPIO 0-31, Chunk 1: GPIO 32-63, etc.).
+ * 		Format: nl_gpio_vals=0x11111111,0x22222222,0x33333333,0x44444444
+ */
+module_param_named(nl_ngpios, param_nl_ngpios , int, 0444);
+MODULE_PARM_DESC(nl_ngpios, " Number of NL GPIOs. Range 1-128.");
+module_param_array_named(nl_gpio_vals, param_nl_gpio_vals, long, &param_nl_num_gpio_args, 0444);
+MODULE_PARM_DESC(nl_gpio_vals, " Init values for NL GPIO banks. 32-bit chunks.");
 
 MODULE_DESCRIPTION("Axiado LTPI Driver");
 MODULE_AUTHOR("Axiado Corporation");
