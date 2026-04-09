@@ -72,6 +72,72 @@ properties:
     minItems: 1
     maxItems: 4
 
+  ltpi-support-gpio:
+    description: |
+      Enabling gpio support in SCM local capabilities.
+      Configuring the local capability register based on the
+      HPM remote capabilities.
+
+  ltpi-support-i2c:
+    description: |
+      Enabling i2c support in SCM local capabilities.
+      Configuring the local capability register based on the
+      HPM remote capabilities.
+
+  ltpi-support-uart:
+    description: |
+      Enabling uart support in SCM local capabilities.
+      Configuring the local capability register based on the
+      HPM remote capabilities.
+
+  ltpi-support-data:
+    description: |
+      Enabling data support in SCM local capabilities.
+      Configuring the local capability register based on the
+      HPM remote capabilities.
+
+  ltpi-support-oem:
+    description: |
+      Enabling oem support in SCM local capabilities.
+      Configuring the local capability register based on the
+      HPM remote capabilities. Currently SCM don't have support for OEM.
+
+  ltpi-support-nl-gpio-count:
+    description: |
+      SCM supports maximum of 128 bit of nl-gpios.
+      Configuring nl-gpio count in local SMC capabilities based on the
+      gpio support enable and the HPM remote capabilities.
+
+  ltpi-support-i2c-channels:
+    description: |
+      SCM supports maximum of 6 I2C channels.
+      Configuring I2C channel in local capabilities based on the
+      I2C support enable and the HPM remote capabilities.
+
+  ltpi-support-i2c-echo:
+    description: |
+      Enabling I2C echo support in SCM local capabilities.
+      Configuring the I2C echo support in the local capability register
+      based on the HPM remote capabilities.
+
+  ltpi-support-uart-flow-control:
+    description: |
+      Enabling UART flow control support in SCM local capabilities.
+      Configuring the UART flow control support in the local capability
+      register based on the HPM remote capabilities.
+
+  ltpi-support-uart0:
+    description: |
+      Enabling uart0 support in SCM local capabilities.
+      Configuring the local capability register based on the
+      HPM remote capabilities.
+
+  ltpi-support-uart1:
+    description: |
+      Enabling uart1 support in SCM local capabilities.
+      Configuring the local capability register based on the
+      HPM remote capabilities.
+
 required:
   - compatible
   - reg
@@ -82,6 +148,16 @@ required:
   - interrupts
   - ngpios
   - dout-init
+  - ltpi-support-gpio
+  - ltpi-support-i2c
+  - ltpi-support-uart
+  - ltpi-support-data
+  - ltpi-support-nl-gpio-count
+  - ltpi-support-i2c-channels
+  - ltpi-support-i2c-echo
+  - ltpi-support-uart-flow-control
+  - ltpi-support-uart0
+  - ltpi-support-uart1
 
 additionalProperties: false
 
@@ -100,4 +176,18 @@ examples:
         interrupts = <18 IRQ_TYPE_LEVEL_HIGH>;
         ngpios = <128>;
         dout-init = <0x00000000 0x00000000>;
+        ltpi-support-gpio;
+        ltpi-support-i2c;
+        ltpi-support-uart;
+        ltpi-support-data;
+        /* Number of NL GPIOs to be supported */
+        /* SCM supports maximum 128 bits - 0x80 */
+        ltpi-support-nl-gpio-count = <0x80>;
+        /* LTPI - I2C supporting channels */
+        /* bit 0 - ch 0, bit 1 - ch 1, ... */
+        /* SCM supports maximum 6 channels */
+        ltpi-support-i2c-channels = <0x3F>;
+        /* LTPI - I2C Echo support */
+        ltpi-support-i2c-echo;
+        ltpi-support-uart0;
     };
