@@ -108,10 +108,20 @@ void db9000_bpp_setup(struct db9000 *db9000, int bpp, int bus_width,
 	reg_write(db9000, DB9000_CR1, reg_cr1);
 }
 
+
+void db9000_reset(struct db9000 *db9000)
+{
+	int i = 0, j = 0x0;
+
+	for (i = 0; i < 13; i++) {
+		reg_write(db9000, j, DB9000_DEF_VAL);
+		j = j + DB9000_REG_OFFSET;
+	}
+}
+
 void db9000_controller_on(struct db9000 *db9000)
 {
 	unsigned long flags;
-
 	/* Release pixel clock domain reset */
 	reg_write(db9000, DB9000_PCTR, DB9000_PCTR_PCR | DB9000_PCTR_PCI);
 	/* Enable BAU event for IRQ */
@@ -125,10 +135,20 @@ static irqreturn_t db9000_irq_thread(int irq, void *arg)
 	struct drm_device *ddev = arg;
 	struct db9000 *db9000 = ddev->dev_private;
 	struct drm_crtc *crtc = drm_crtc_from_index(ddev, 0);
+	u32 status = db9000->irqstatus;
 
-	/* Line IRQ : trigger the vblank event */
-	if (db9000->irqstatus & DB9000_CR1_VBLANK)
+	if (status == 0)
+		status = reg_read(db9000, DB9000_ISR);
+	/* Read ISR to check authoritative status */
+
+	/* Check vertical-compare trigger -> treat as vblank */
+	if (status & DB9000_ISR_VCT) {
+		/* Acknowledge/clear the VCT bit in the hardware ISR */
+		reg_write(db9000, DB9000_ISR, status & DB9000_ISR_VCT);
+
+		/* Inform DRM core of vblank */
 		drm_crtc_handle_vblank(crtc);
+	}
 	return IRQ_HANDLED;
 }
 
@@ -136,14 +156,12 @@ static irqreturn_t db9000_irq(int irq, void *arg)
 {
 	struct drm_device *ddev = arg;
 	struct db9000 *db9000 = ddev->dev_private;
-	u32 imr;
-
-	/* Read & Clear the interrupt status */
+	/* Read ISR – hardware status */
 	db9000->irqstatus = reg_read(db9000, DB9000_ISR);
+
+	/* Acknowledge/clear interrupt bits in ISR */
 	reg_write(db9000, DB9000_ISR, db9000->irqstatus);
-	imr = reg_read(db9000, DB9000_IMR);
-	reg_write(db9000, DB9000_IMR,
-		  imr & ~(DB9000_IMR_BAUM | DB9000_IMR_FERM | DB9000_CR1_LCE));
+
 	return IRQ_WAKE_THREAD;
 }
 
@@ -176,7 +194,6 @@ static void db9000_plane_atomic_disable(struct drm_plane *plane,
 {
 	struct db9000 *db9000 = plane_to_db9000(plane);
 	u32 imr;
-
 	/* disable IRQ */
 	imr = reg_read(db9000, DB9000_IMR);
 	reg_write(db9000, DB9000_IMR, imr & ~DB9000_IMR_BAUM);
@@ -268,22 +285,33 @@ static int db9000_crtc_enable_vblank(struct drm_crtc *crtc)
 {
 	struct db9000 *db9000 = crtc_to_db9000(crtc);
 	struct drm_crtc_state *state = crtc->state;
+	u32 imr;
 
-	if (state->enable) {
-		reg_write(db9000, DB9000_ISCR, DB9000_ISCR_VAL);
-		reg_write(db9000, DB9000_IMR,
-			  DB9000_IMR_VAL2 | DB9000_CR1_VBLANK);
-	} else {
+	if (!state->enable)
 		return -EPERM;
-	}
+
+	/* Set ISCR if required by controller */
+	reg_write(db9000, DB9000_ISCR, DB9000_ISCR_VAL);
+
+	/* UNMASK VCT interrupt -> enable vblank IRQ */
+	imr = reg_read(db9000, DB9000_IMR);
+	imr &= ~DB9000_IMR_VCTM;
+	reg_write(db9000, DB9000_IMR, imr);
+	drm_crtc_vblank_on(crtc);
+
 	return 0;
 }
 
 static void db9000_crtc_disable_vblank(struct drm_crtc *crtc)
 {
 	struct db9000 *db9000 = crtc_to_db9000(crtc);
+	u32 imr;
 
-	reg_write(db9000, DB9000_ISCR, DB9000_ISCR_VAL2);
+	drm_crtc_vblank_off(crtc);
+	/* MASK VCT interrupt -> disable vblank IRQ */
+	imr = reg_read(db9000, DB9000_IMR);
+	imr |= DB9000_IMR_VCTM;
+	reg_write(db9000, DB9000_IMR, imr);
 }
 
 static void db9000_crtc_mode_set_nofb(struct drm_crtc *crtc)
@@ -414,17 +442,17 @@ static void db9000_crtc_atomic_enable(struct drm_crtc *crtc,
 	struct drm_device *ddev = crtc->dev;
 	u32 iscr, mask;
 
-	pm_runtime_get_sync(ddev->dev);
+	 pm_runtime_get_sync(ddev->dev);
 	iscr = reg_read(db9000, DB9000_ISCR);
 	mask = iscr | DB9000_ISCR_OFO | DB9000_ISCR_IFU;
 	reg_write(db9000, DB9000_ISCR, mask);
-	drm_crtc_vblank_on(crtc);
 }
 
 static void db9000_crtc_atomic_disable(struct drm_crtc *crtc,
 				       struct drm_atomic_state *state)
 {
-	drm_crtc_vblank_off(crtc);
+
+	pr_debug("Atomic CRTC Disable\n");
 }
 
 static const struct drm_crtc_helper_funcs db9000_crtc_helper_funcs = {
@@ -487,7 +515,7 @@ static int db9000_crtc_init(struct drm_device *ddev, struct drm_crtc *crtc)
 		return -EINVAL;
 	}
 	ret = drm_crtc_init_with_planes(ddev, crtc, primary, NULL,
-					&db9000_crtc_funcs, NULL);
+			&db9000_crtc_funcs, NULL);
 	if (ret) {
 		DRM_ERROR("Can not initialize CRTC\n");
 		goto err;
@@ -507,6 +535,53 @@ static int db9000_crtc_init(struct drm_device *ddev, struct drm_crtc *crtc)
 
 err:
 	return ret;
+}
+
+static int db9000_reinit_state(struct seq_file *s, void *data)
+{
+	struct db9000 *db9000 = (struct db9000 *)dev_get_drvdata(s->private);
+	u32 err = 0, iscr, mask;
+	u32 paddr, dear_offset;
+
+	if (db9000 == NULL) {
+		pr_err("DB9000 Info not Obtained\n");
+		return err;
+	}
+	paddr = db9000->paddr_disp;
+	dear_offset = (db9000->frame_size * db9000->bpp) / 8 + 8;
+	reg_write(db9000, DB9000_CR1, CR1_TEST_SET_A);
+	reg_write(db9000, DB9000_HTR, SET_HTR_PARM);
+	reg_write(db9000, DB9000_VTR1, SET_VTR1_PARM);
+	reg_write(db9000, DB9000_VTR2, SET_VTR2_PARM);
+	reg_write(db9000, DB9000_CR1, DB9000_CR1_VAL3);
+	db9000_bpp_setup(db9000, 32, db9000->bus_width, false);
+	reg_write(db9000, DB9000_DBAR, paddr);
+	reg_write(db9000, DB9000_DEAR, paddr + dear_offset);
+	iscr = reg_read(db9000, DB9000_ISCR);
+	mask = iscr | DB9000_ISCR_OFO | DB9000_ISCR_IFU;
+	reg_write(db9000, DB9000_ISCR, mask);
+
+	if (err < 0)
+		seq_puts(s, "DB9000 reinit failed\n");
+	else
+		seq_puts(s, "DB9000 reinit Done\n");
+
+	return err;
+}
+
+static void ax_db9000_debugfs_exit(struct db9000 *db9000)
+{
+	debugfs_remove_recursive(db9000->debugfs);
+	db9000->debugfs = NULL;
+}
+
+static void ax_db9000_debugfs_init(struct db9000 *db9000)
+{
+	db9000->debugfs = debugfs_create_dir("db9000", NULL);
+
+	debugfs_create_devm_seqfile(db9000->dev, "db9000_reinit_state", db9000->debugfs,
+			db9000_reinit_state);
+
 }
 
 static int axiado_db9000_bind(struct device *dev, struct device *master, void *data)
@@ -584,6 +659,7 @@ static int axiado_db9000_bind(struct device *dev, struct device *master, void *d
 		DRM_ERROR("Unable to prepare pixel clock\n");
 		return -ENODEV;
 	}
+	db9000_reset(db9000);
 	db9000_controller_on(db9000);
 	db9000_bpp_setup(db9000, db9000->bpp, db9000->bus_width, false);
 
@@ -601,7 +677,7 @@ static int axiado_db9000_bind(struct device *dev, struct device *master, void *d
 		goto err;
 	}
 	ret = devm_request_threaded_irq(dev, irq, db9000_irq, db9000_irq_thread,
-					IRQF_ONESHOT, dev_name(dev), ddev);
+			IRQF_ONESHOT, dev_name(dev), ddev);
 	if (ret) {
 		DRM_ERROR("Failed to register DB9000 interrupt\n");
 		goto err;
@@ -624,7 +700,8 @@ static int axiado_db9000_bind(struct device *dev, struct device *master, void *d
 		goto err;
 	}
 	dev_set_drvdata(dev, db9000);
-
+	if (IS_ENABLED(CONFIG_DEBUG_FS))
+		ax_db9000_debugfs_init(db9000);
 	return 0;
 
 err:
@@ -635,6 +712,8 @@ static void axiado_db9000_unbind(struct device *dev, struct device *master, void
 {
 	struct db9000 *db9000 = dev_get_drvdata(dev);
 
+	if (IS_ENABLED(CONFIG_DEBUG_FS))
+		ax_db9000_debugfs_exit(db9000);
 	clk_disable_unprepare(db9000->lcd_eclk);
 }
 
@@ -659,6 +738,24 @@ static int db9000_drm_platform_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void db9000_drm_platform_shutdown(struct platform_device *pdev)
+{
+	struct db9000 *db9000 = dev_get_drvdata(&pdev->dev);
+
+	if (!db9000)
+		return;
+
+	/* Mask all interrupts for the controller to prevent stray IRQs */
+	reg_write(db9000, DB9000_IMR, DB9000_IMR_VAL2);
+
+	/* try to acknowledge/clear any pending ISR bits (best-effort) */
+	reg_write(db9000, DB9000_ISR, reg_read(db9000, DB9000_ISR));
+
+	/* Disable the pixel clock if it's enabled */
+	if (db9000->lcd_eclk)
+		clk_disable_unprepare(db9000->lcd_eclk);
+}
+
 static const struct of_device_id db9000_dt_ids[] = {
 	{ .compatible = "axiado,drm-db9000" },
 };
@@ -667,6 +764,7 @@ MODULE_DEVICE_TABLE(of, db9000_dt_ids);
 struct platform_driver db9000_drm_platform_driver = {
 	.probe = db9000_drm_platform_probe,
 	.remove = db9000_drm_platform_remove,
+	.shutdown = db9000_drm_platform_shutdown,
 	.driver = {
 		.name = "drm-db9000",
 		.of_match_table = db9000_dt_ids,
