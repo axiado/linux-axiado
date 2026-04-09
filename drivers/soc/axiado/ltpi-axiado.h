@@ -7,9 +7,12 @@
 #define _LTPI_AXIADO_H_
 
 /* ax3000 ltpi register offset */
-#define REG_LTPI_DI_ADRS_OFFSET 0x0BC /* Input data register */
-#define REG_LTPI_DO_ADRS_OFFSET 0x07C /* Output data register */
-#define REG_LTPI_MASK_ADRS_OFFSET 0x108 /* Interrupt mask register */
+#define REG_LTPI_NL_DI_ADRS_OFFSET 0x0BC /* Input data register */
+#define REG_LTPI_NL_DO_ADRS_OFFSET 0x07C /* Output data register */
+#define REG_LTPI_NL_MASK_ADRS_OFFSET 0x108 /* Interrupt mask register */
+#define REG_LTPI_LL_DI_ADRS_OFFSET 0x100 /* Input data register */
+#define REG_LTPI_LL_DO_ADRS_OFFSET 0x0FC /* Output data register */
+#define REG_LTPI_LL_MASK_ADRS_OFFSET 0x148 /* Interrupt mask register */
 #define REG_LTPI_STATUS_ADRS_OFFSET 0x104 /* Interrupt status register */
 
 #define REG_LTPI_LOCAL_CAPA_LOW_OFFSET 0x014 /* Advertising local capabilities*/
@@ -41,9 +44,11 @@
 #define LTPI_NODE 5
 #define PINS_PER_GPIO_BANK 32
 
-#define MAX_GPIO_PINS 128
-#define MAX_OFFSET_REG (MAX_GPIO_PINS / 32)
-#define MAX_BANKS 16
+#define NL_MAX_GPIO_PINS 128
+#define NL_MAX_OFFSET_REG (NL_MAX_GPIO_PINS / 32)
+#define LL_MAX_GPIO_PINS 32
+#define LL_MAX_OFFSET_REG (LL_MAX_GPIO_PINS / 32)
+#define MAX_BANKS 4
 
 /* LTPI Bus state on Local and Remote side */
 #define LINK_DETECT 0x0
@@ -77,18 +82,40 @@
 #define LTPI_LINK_STATUS_SUCCESS 0
 #define LTPI_LINK_STATUS_FAILED 1
 
-struct ax3000_ltpi {
-	struct mutex lock; /* Protects concurrent access to GPIO operations */
-	struct irq_chip irq;
+#define NL_IRQ_BIT_BASE 0
+#define LL_IRQ_BIT_BASE 128
+
+enum gpio_type {
+	NL_GPIO = 0,
+	LL_GPIO = 1
+};
+
+struct ax3000_ltpi;
+
+struct ltpi_gpio {
+	struct gpio_chip gc;
+	enum gpio_type type;
+	u32 ngpios;
 	int lines;
-	struct gpio_chip chip;
-	struct irq_domain *irq_domain;
 	int num_banks;
-	u32 cap_l;
-	u32 cap_h;
+	u32 irq_bit_base;
 	u32 *inputs_cache;
 	u32 *outputs_cache;
 	u32 *mask; /* 1 - Mask & 0 - Unmask */
+	struct ax3000_ltpi *core;
+};
+
+struct ax3000_ltpi {
+	struct mutex lock; /* Protects concurrent access to GPIO operations */
+	struct irq_chip irq;
+	struct irq_domain *irq_domain;
+	int parent_irq;
+	u32 total_lines; /* max (nl lines + ll lines) */
+	u32 total_banks; /* total_lines/32 */
+	struct ltpi_gpio nl;
+	struct ltpi_gpio ll;
+	u32 cap_l;
+	u32 cap_h;
 	struct work_struct ltpi_work;
 	struct delayed_work ltpi_link_work;
 	void __iomem *membase; /* Fallback for direct memory access */
