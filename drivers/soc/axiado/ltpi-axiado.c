@@ -38,9 +38,29 @@
 
 #include "ltpi-axiado.h"
 
+#include <linux/wait.h>
+#include <linux/sched.h>
+#include <linux/jiffies.h>
+
+static DECLARE_WAIT_QUEUE_HEAD(wq);
+static bool ready;
 static int param_nl_ngpios = -1;
 static long param_nl_gpio_vals[MAX_BANKS];
 static int param_nl_num_gpio_args = 0;
+
+/**
+ * wait_ready - Timeout for the ltpi link status check
+ * @timeout_ms: Timeout delay
+ *  @return: Timedout
+ */
+int wait_ready(unsigned int timeout_ms) {
+	long tout = msecs_to_jiffies(timeout_ms);
+
+	if (!wait_event_timeout(wq, ready, tout))
+		return -ETIMEDOUT;
+
+	return 0;
+}
 
 /**
  * update_bank - Update a bank value in the destination array
@@ -395,6 +415,79 @@ static void setup_ltpi_debugfs(struct ax3000_ltpi *ltpi)
 }
 #endif
 
+static int link_status_check(struct ax3000_ltpi *ltpi) {
+	u8 val;
+	val = ((ltpi_reg_read(ltpi, REG_LTPI_LINK_STATUS_OFFSET) >> LOCAL_STATE_SHIFT) & 0xF);
+
+	switch (val) {
+	case LINK_DETECT:
+	case LINK_SPEED:
+	case ADVERTISE:
+	case CONFIGURATION:
+		return LTPI_LINK_STATUS_FAILED;
+		break;
+	case OPERATIONAL:
+		return LTPI_LINK_STATUS_SUCCESS;
+		break;
+	}
+
+	return LTPI_LINK_STATUS_FAILED;
+}
+
+static void local_capabilities_configure(struct ax3000_ltpi *ltpi) {
+	u32 local_val_l;
+	u32 local_val_h;
+	u32 new_local_val_l = 0;
+	u32 new_local_val_h = 0;
+	u32 remote_val_l;
+	u32 remote_val_h;
+	u32 val;
+
+	/* Read the HPM and Local default capapbilities for comparision */
+	local_val_l = ltpi_reg_read(ltpi, REG_LTPI_LOCAL_CAPA_LOW_OFFSET);
+	local_val_h = ltpi_reg_read(ltpi, REG_LTPI_LOCAL_CAPA_HIGH_OFFSET);
+	remote_val_l = ltpi_reg_read(ltpi, REG_LTPI_REMOTE_CAPA_LOW_OFFSET);
+	remote_val_h = ltpi_reg_read(ltpi, REG_LTPI_REMOTE_CAPA_HIGH_OFFSET);
+
+	/* LTPI reset bit set */
+	val = ltpi_reg_read(ltpi, REG_LTPI_CONTROL_STATUS_REG1_OFFSET);
+	val |= RESET_BIT;
+	ltpi_reg_write(ltpi, REG_LTPI_CONTROL_STATUS_REG1_OFFSET, val);
+
+	/* Compare the Local and HPM capabilities and update the Local configuration */
+	new_local_val_l |= (remote_val_l & local_val_l) &
+				(LTPI_CAP_GPIO_BIT |
+				 LTPI_CAP_I2C_BIT |
+				 LTPI_CAP_UART_BIT |
+				 LTPI_CAP_DATA_BIT |
+				 LTPI_CAP_OEM_BIT |
+				 LTPI_CAP_I2C_CH0_BIT |
+				 LTPI_CAP_I2C_CH1_BIT |
+				 LTPI_CAP_I2C_CH2_BIT |
+				 LTPI_CAP_I2C_CH3_BIT |
+				 LTPI_CAP_I2C_CH4_BIT |
+				 LTPI_CAP_I2C_CH5_BIT |
+				 LTPI_CAP_I2C_ECHO_BIT);
+
+	if (((remote_val_l >> LTPI_CAP_NL_GPIO_SHIFT) & 0x3FF) <= NL_MAX_GPIO_PINS)
+		new_local_val_l |= (((remote_val_l >> LTPI_CAP_NL_GPIO_SHIFT) & 0x3FF) << LTPI_CAP_NL_GPIO_SHIFT);
+	else
+		new_local_val_l |= (NL_MAX_GPIO_PINS << 8);
+
+	new_local_val_h |= (remote_val_h & local_val_h) &
+				(LTPI_CAP_UART_FLOW_CONTROL_BIT |
+				 LTPI_CAP_UART0_EN_BIT |
+				 LTPI_CAP_UART1_EN_BIT);
+
+	ltpi_reg_write(ltpi, REG_LTPI_LOCAL_CAPA_LOW_OFFSET, new_local_val_l);
+	ltpi_reg_write(ltpi, REG_LTPI_LOCAL_CAPA_HIGH_OFFSET, new_local_val_h);
+
+	/* LTPI reset bit clear */
+	val = ltpi_reg_read(ltpi, REG_LTPI_CONTROL_STATUS_REG1_OFFSET);
+	val &= ~RESET_BIT;
+	ltpi_reg_write(ltpi, REG_LTPI_CONTROL_STATUS_REG1_OFFSET, val);
+}
+
 /**
  * ltpi_probe - Probe function for LTPI GPIO driver
  * @spi: Platform device structure
@@ -407,6 +500,10 @@ static int ltpi_probe(struct platform_device *spi)
 	int irq;
 	int rc = 0;
 	int i;
+	u32 nl_gpio_count;
+	u32 i2c_channels;
+	u32 val;
+
 #ifdef CONFIG_AXIADO_LTPI_REGMAP
 	u32 reg_base_offset = 0;
 #endif
@@ -414,6 +511,7 @@ static int ltpi_probe(struct platform_device *spi)
 	if (!ltpi)
 		return -ENOMEM;
 
+	ltpi->dev = &spi->dev;
 	platform_set_drvdata(spi, ltpi);
 
 #ifdef CONFIG_AXIADO_LTPI_REGMAP
@@ -444,6 +542,72 @@ static int ltpi_probe(struct platform_device *spi)
 #ifdef CONFIG_AXIADO_LTPI_REGMAP
 	}
 #endif
+
+	if (device_property_read_bool(&spi->dev, "ltpi-support-gpio"))
+		ltpi->cap_l |= LTPI_CAP_GPIO_BIT;
+
+	if (device_property_read_bool(&spi->dev, "ltpi-support-i2c"))
+		ltpi->cap_l |= LTPI_CAP_I2C_BIT;
+
+	if (device_property_read_bool(&spi->dev, "ltpi-support-uart"))
+		ltpi->cap_l |= LTPI_CAP_UART_BIT;
+
+	if (device_property_read_bool(&spi->dev, "ltpi-support-data"))
+		ltpi->cap_l |= LTPI_CAP_DATA_BIT;
+
+	if (device_property_read_bool(&spi->dev, "ltpi-support-oem"))
+		ltpi->cap_l |= LTPI_CAP_OEM_BIT;
+
+	rc = device_property_read_u32(&spi->dev, "ltpi-support-nl-gpio-count", &nl_gpio_count);
+
+	if (rc < 0) {
+		dev_err(&spi->dev, "could not read ltpi-support-nl-gpio-count property\n");
+		return -EINVAL;
+	}
+
+	ltpi->cap_l |= (nl_gpio_count << LTPI_CAP_NL_GPIO_SHIFT);
+
+	rc = device_property_read_u32(&spi->dev, "ltpi-support-i2c-channels", &i2c_channels);
+
+	if (rc < 0) {
+		dev_err(&spi->dev, "could not read ltpi-support-i2c-channels property\n");
+		return -EINVAL;
+	}
+
+	ltpi->cap_l |= (i2c_channels << LTPI_CAP_I2C_SHIFT);
+
+	if (device_property_read_bool(&spi->dev, "ltpi-support-i2c-echo"))
+		ltpi->cap_l |= LTPI_CAP_I2C_ECHO_BIT;
+
+	if (device_property_read_bool(&spi->dev, "ltpi-support-uart-flow-control"))
+		ltpi->cap_h |= LTPI_CAP_UART_FLOW_CONTROL_BIT;
+
+	if (device_property_read_bool(&spi->dev, "ltpi-support-uart0"))
+		ltpi->cap_h |= LTPI_CAP_UART0_EN_BIT;
+
+	if (device_property_read_bool(&spi->dev, "ltpi-support-uart1"))
+		ltpi->cap_h |= LTPI_CAP_UART1_EN_BIT;
+
+	/* Update the local capabilities based on the DTS entry */
+	ltpi_reg_write(ltpi, REG_LTPI_LOCAL_CAPA_LOW_OFFSET, ltpi->cap_l);
+	ltpi_reg_write(ltpi, REG_LTPI_LOCAL_CAPA_HIGH_OFFSET, ltpi->cap_h);
+
+	if (link_status_check(ltpi))
+		local_capabilities_configure(ltpi);
+	else
+		dev_info(&spi->dev, "LTPI is in Operational state");
+
+	/* Delay 5 sec for the Link status change */
+	rc = regmap_read_poll_timeout(ltpi->regmap, ltpi->regmap_base_offset,
+			val, (val & LINK_STATUS_READY_BIT), 10, TIMEOUT_DELAY);
+
+	if (rc) {
+		dev_err(&spi->dev, "LTPI Link failed");
+		return -ETIMEDOUT;
+	}
+	else
+		dev_info(&spi->dev, "LTPI Link is in Operational state");
+
 	if (param_nl_ngpios == -1) {
 		rc = device_property_read_u32(&spi->dev, "ngpios", &ltpi->lines);
 		if (rc < 0) {
