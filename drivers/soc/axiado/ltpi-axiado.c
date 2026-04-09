@@ -661,6 +661,7 @@ static void ltpi_init_chip(struct ax3000_ltpi *ltpi, struct ltpi_gpio *chip,
 
 	chip->gc.get = ax3000_ltpi_get;
 	chip->gc.set = ax3000_ltpi_set;
+	chip->gc.can_sleep = true;
 	chip->gc.direction_input = ax3000_ltpi_dir_in;
 	chip->gc.direction_output = ax3000_ltpi_dir_out;
 	chip->gc.to_irq = ltpi_to_irq;

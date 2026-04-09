@@ -454,6 +454,7 @@ static int sgpio_probe(struct platform_device *pdev)
 	sgpio->chip.direction_output = ax3000_sgpio_dir_out;
 	sgpio->chip.get = ax3000_sgpio_get;
 	sgpio->chip.set = ax3000_sgpio_set;
+	sgpio->chip.can_sleep = true;
 	sgpio->chip.label = dev_name(&pdev->dev);
 	sgpio->chip.base = -1;
 
