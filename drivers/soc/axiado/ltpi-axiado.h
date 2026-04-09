@@ -35,7 +35,6 @@
 	typeof(a) _a = (a); \
 	_a - (32 * GET_BANK(_a)); \
 })
-#define IS_BIT_SET(reg, bit_position) (((reg) & (1 << (bit_position))) != 0)
 #define POS_TO_ID(pos, bank) ((pos) + (32 * (bank)))
 #define BANK_SZ 32
 
@@ -70,7 +69,8 @@
 #define LTPI_CAP_UART1_EN_BIT BIT(14) /* LTPI UART1 EN bit */
 #define NL_MAX_GPIO_PINS 128
 
-#define TIMEOUT_DELAY 5000000 /* 5 sec Delay in usec*/
+#define LTPI_LINK_MAX_RETRIES 50
+#define LTPI_LINK_RETRY_INTERVAL_MS 5000
 #define LTPI_CAP_NL_GPIO_SHIFT 8
 #define LTPI_CAP_I2C_SHIFT 24
 
@@ -90,8 +90,10 @@ struct ax3000_ltpi {
 	u32 *outputs_cache;
 	u32 *mask; /* 1 - Mask & 0 - Unmask */
 	struct work_struct ltpi_work;
+	struct delayed_work ltpi_link_work;
 	void __iomem *membase; /* Fallback for direct memory access */
 	struct device *dev;
+	int link_retry;
 #ifdef CONFIG_AXIADO_LTPI_REGMAP
 	/* Regmap support */
 	struct regmap *regmap;
