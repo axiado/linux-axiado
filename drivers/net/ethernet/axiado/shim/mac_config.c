@@ -328,22 +328,42 @@ static u32 get_mac_base(int app_id)
 }
 
 /**
- * mac_phy_addr - Configure the MAC address in hardware registers.
+ * mac_phy_addr_rd - Read the MAC address from hardware registers.
+ * @app_id: Application ID (Logic mapping).
+ * @mac_0: Pointer for lower 32 bits of MAC address.
+ * @mac_1: Pointer for upper 16 bits of MAC address.
+ *
+ * Return: true.
+ */
+bool mac_phy_addr_rd(int app_id, u32 *mac_0, u32 *mac_1)
+{
+	u32 mac_base = get_mac_base(app_id);
+
+	*mac_0 = shim_read_word(mac_base + R_MAC_0);
+	*mac_1 = shim_read_word(mac_base + R_MAC_1);
+
+	return true;
+}
+EXPORT_SYMBOL_GPL(mac_phy_addr_rd);
+
+/**
+ * mac_phy_addr_wr - Configure the MAC address in hardware registers.
  * @app_id: Application ID (Logic mapping).
  * @mac_0: Lower 32 bits of MAC address.
  * @mac_1: Upper 16 bits of MAC address.
  *
  * Return: true.
  */
-bool mac_phy_addr(int app_id, u32 mac_0, u32 mac_1)
+bool mac_phy_addr_wr(int app_id, u32 mac_0, u32 mac_1)
 {
 	u32 mac_base = get_mac_base(app_id);
 
 	shim_write_word(mac_base + R_MAC_0, mac_0);
 	shim_write_word(mac_base + R_MAC_1, mac_1);
+
 	return true;
 }
-EXPORT_SYMBOL_GPL(mac_phy_addr);
+EXPORT_SYMBOL_GPL(mac_phy_addr_wr);
 
 /**
  * mac_update_promisc - Toggle promiscuous mode.

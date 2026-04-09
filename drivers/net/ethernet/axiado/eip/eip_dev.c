@@ -175,7 +175,7 @@ static int eip_set_mac(struct net_device *dev, void *address)
 
 		mac_1 = (u32)addr->sa_data[4] | (u32)addr->sa_data[5] << 8;
 
-		mac_phy_addr(priv->app_id, mac_0, mac_1);
+		mac_phy_addr_wr(priv->app_id, mac_0, mac_1);
 	}
 
 	return 0;
@@ -184,25 +184,30 @@ static int eip_set_mac(struct net_device *dev, void *address)
 /**
  * @brief Set the initial mac address for netdev interface while opening
  * the interface. This also sets mac address for eipdtl interface.
- * If netdev ptr or netdev->dev_addr ptr is null, this will return without
- * setting mac for the interface.
  *
  * @param ndev Pointer to netdev struct.
+ * @param mac_0 4B MAC read from HW reg.
+ * @param mac_1 2B MAC read from HW reg.
  */
-void set_initial_mac(struct net_device *ndev)
+void set_initial_mac(struct net_device *ndev, u32 mac_0, u32 mac_1)
 {
 	struct eip_priv *priv;
 	u8 random_mac[3] = { 0 }, mac_addr[6] = { 0 };
 
 	priv = netdev_priv(ndev);
 
-	/* Get 3 random bytes using kernel API */
-	get_random_bytes(random_mac, 3);
+	if (!mac_0 || !mac_1) {
+		/* Get 3 random bytes using kernel API */
+		get_random_bytes(random_mac, 3);
 
-	/* Copy Axiado-OUI into first 3 bytes (0th, 1st and 2nd) of MAC-address. */
-	memcpy(mac_addr, ax_mac_oui, 3);
-	/* Copy random 3 bytes into last 3 bytes (3rd, 4th and 5th) of MAC-address. */
-	memcpy(mac_addr + 3, random_mac, 3);
+		/* Copy Axiado-OUI into first 3 bytes (0th, 1st and 2nd) of MAC-address. */
+		memcpy(mac_addr, ax_mac_oui, 3);
+		/* Copy random 3 bytes into last 3 bytes (3rd, 4th and 5th) of MAC-address. */
+		memcpy(mac_addr + 3, random_mac, 3);
+	} else {
+		memcpy(mac_addr, &mac_0, 4);
+		memcpy(mac_addr + 4, &mac_1, 2);
+	}
 	/* Copy 6 bytes MAC addr into netdev-mac-address array */
 	eth_hw_addr_set(ndev, mac_addr);
 }
@@ -942,6 +947,7 @@ int device_init(struct eip_public *eip_pub, struct device *dev)
 	struct eip_priv *priv;
 	struct eip_ring_interface *eip_ring;
 	int i, err = 0;
+	u32 mac_0, mac_1;
 
 	for (i = 0; i < RING_INTERFACE_CNT; i++) {
 		eip_ring = &eip_pub->eip_ring[i];
@@ -990,13 +996,16 @@ int device_init(struct eip_public *eip_pub, struct device *dev)
 			INIT_WORK(&eip_pub->rxaui_phy_reset, phy_reset_retry);
 		}
 
+		mac_0 = 0;
+		mac_1 = 0;
+		if (i < MAX_MAC_CNT)
+			mac_phy_addr_rd(priv->app_id, &mac_0, &mac_1);
+
 		if (ndev->dev_addr)
-			set_initial_mac(ndev);
+			set_initial_mac(ndev, mac_0, mac_1);
 
 		/* set MAC address in HW-MAC-Port */
-		if (i < MAX_MAC_CNT) {
-			u32 mac_0, mac_1;
-
+		if (i < MAX_MAC_CNT && (!mac_0 || !mac_1)) {
 			mac_0 = (u32)ndev->dev_addr[0] |
 				(u32)ndev->dev_addr[1] << 8 |
 				(u32)ndev->dev_addr[2] << 16 |
@@ -1006,7 +1015,7 @@ int device_init(struct eip_public *eip_pub, struct device *dev)
 								 << 8;
 			LOG_DEBG("setting MAC for: %d - %s\n", i,
 				 netdev_name(ndev));
-			mac_phy_addr(priv->app_id, mac_0, mac_1);
+			mac_phy_addr_wr(priv->app_id, mac_0, mac_1);
 		}
 	}
 
