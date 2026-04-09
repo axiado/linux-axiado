@@ -24,6 +24,7 @@
 #include <linux/kernel.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
+#include <linux/irqdomain.h>
 #include <linux/gpio/driver.h>
 #include <linux/types.h>
 
@@ -303,6 +304,15 @@ static void sgpio_unmask_irq(struct irq_data *d)
 	sgpio->mask_status[irq_num/2] = 1;
 }
 
+static void sgpio_irq_shutdown(struct irq_data *d)
+{
+	/* Shutdown callback ensures IRQ is properly disabled when
+	 * the IRQ chip is being removed. This helps ensure IRQ handler
+	 * threads are terminated before the chip is removed.
+	 */
+	sgpio_mask_irq(d);
+}
+
 static int sgpio_probe(struct platform_device *pdev)
 {
 	int rc;
@@ -425,6 +435,9 @@ static int sgpio_probe(struct platform_device *pdev)
 		return irq;
 	}
 
+	/* Store IRQ number for cleanup in remove function */
+	sgpio->parent_irq = irq;
+
 	rc = devm_request_threaded_irq(&pdev->dev, irq, NULL,
 			sgpio_irq_handler, IRQF_ONESHOT,
 			"sgpio_irq", sgpio);
@@ -450,6 +463,7 @@ static int sgpio_probe(struct platform_device *pdev)
 	sgpio->irq.irq_mask = sgpio_mask_irq;
 	sgpio->irq.irq_unmask = sgpio_unmask_irq;
 	sgpio->irq.irq_set_type = sgpio_set_irq_type;
+	sgpio->irq.irq_shutdown = sgpio_irq_shutdown;
 	sgpio->irq.flags = IRQCHIP_IMMUTABLE;
 
 	/* Get a pointer to the gpio_irq_chip */
@@ -465,14 +479,73 @@ static int sgpio_probe(struct platform_device *pdev)
 	rc = devm_gpiochip_add_data(&pdev->dev, &sgpio->chip, sgpio);
 	if (rc < 0) {
 		dev_err(&pdev->dev, "Could not register gpiochip, %d\n", rc);
-		return -1;
+		return rc;
 	}
+
+	/* Store sgpio pointer for cleanup in remove function */
+	platform_set_drvdata(pdev, sgpio);
 
 	return 0;
 }
 
 static int sgpio_remove(struct platform_device *pdev)
 {
+	struct ax3000_sgpio *sgpio = platform_get_drvdata(pdev);
+	int i;
+
+	if (!sgpio)
+		return 0;
+
+	/* Disable interrupts in hardware before removing GPIO chip */
+	if (sgpio->regs) {
+		/* Disable interrupt mask */
+		sgpio_reg_write(sgpio, sgpio->regs->slice_mask, 0x0);
+		/* Disable slice control */
+		sgpio_reg_write(sgpio, sgpio->regs->slice_ctrl_en, 0x0);
+	}
+
+	/* Disable and synchronize the parent IRQ to ensure any pending
+	 * IRQ handlers complete before the GPIO chip is removed.
+	 * This prevents use-after-free errors if IRQ handlers try to
+	 * access the GPIO chip after it's been removed.
+	 */
+	if (sgpio->parent_irq >= 0) {
+		/* Disable the parent IRQ to prevent new interrupts */
+		disable_irq(sgpio->parent_irq);
+		/* Synchronize to ensure any pending IRQ handlers complete */
+		synchronize_irq(sgpio->parent_irq);
+	}
+
+	/* Disable all GPIO IRQs before removing the chip.
+	 * This ensures all IRQ handler threads are terminated before
+	 * the GPIO chip IRQ chip is removed. The GPIO subsystem will
+	 * automatically remove the GPIO chip via devm_gpiochip_add_data,
+	 * but we disable IRQs first to ensure handler threads complete
+	 * and prevent new interrupts.
+	 */
+	if (sgpio->chip.irq.domain) {
+		struct irq_domain *domain = sgpio->chip.irq.domain;
+		unsigned int irq;
+		int hwirq;
+
+		/* Iterate through all GPIOs and disable their IRQs */
+		for (hwirq = 0; hwirq < sgpio->chip.ngpio; hwirq++) {
+			irq = irq_find_mapping(domain, hwirq);
+			if (irq) {
+				/* Disable the IRQ to stop handler threads */
+				disable_irq(irq);
+				/* Synchronize to ensure handler completes */
+				synchronize_irq(irq);
+			}
+		}
+	}
+
+	/* Clear internal IRQ state to prevent stale references */
+	for (i = 0; i < sgpio->max_sgpio_pins; i++) {
+		sgpio->mask_status[i] = 0;
+		sgpio->irq_number[i] = 0;
+	}
+
 	return 0;
 }
 

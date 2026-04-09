@@ -117,8 +117,9 @@ struct ax3000_sgpio {
 	dev_t dev;
 	struct gpio_chip chip;
 	uint32_t slice_enable;
-	uint32_t mask_status[MAX_SGPIO_PINS]; // 1 - Mask & 0 - Unmask
-	uint32_t irq_number[MAX_SGPIO_PINS]; // To store the irq number of each bit
+	uint32_t mask_status[MAX_SGPIO_PINS]; /* 1 - Mask & 0 - Unmask */
+	uint32_t irq_number[MAX_SGPIO_PINS]; /* To store the irq number of each bit */
+	int parent_irq; /* Parent IRQ for the GPIO chip */
 	void __iomem *membase;
 #ifdef CONFIG_AXIADO_SGPIO_REGMAP
 	struct regmap *regmap;
