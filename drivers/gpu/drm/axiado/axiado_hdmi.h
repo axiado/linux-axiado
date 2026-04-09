@@ -6,7 +6,7 @@
 #ifndef __AXIADO_HDMI_H__
 #define __AXIADO_HDMI_H__
 #include <linux/i2c.h>
-
+#include <linux/debugfs.h>
 #define DDC_SEGMENT_ADDR 0x30
 
 enum PWR_MODE {
@@ -55,6 +55,7 @@ struct axiado_hdmi {
 
 	struct hdmi_data_info hdmi_data;
 	struct drm_display_mode previous_mode;
+	struct dentry *debugfs;
 };
 struct axiado_crtc {
 	struct drm_crtc base;
@@ -132,7 +133,9 @@ struct axiado_connector {
 
 #define HDMI_SYS_PWR_ON 0x63
 #define HDMI_SYS_PWR_LOW 0x61
-
+#define HDMI_SYS_CTRL1 0x004
+#define HDMI_SYS_CTRL2 0x008
+#define HDMI_CTRL2_VAL 0x34
 /* Input video format control register */
 #define HDMI_VIDEO_CONTRL1 0x004
 #define m_VIDEO_INPUT_FORMAT (7 << 1)
@@ -224,7 +227,7 @@ struct axiado_connector {
 	 m_PLL3_DIVIDER_CTRL_5)
 
 #define HDMI_PLL4 0x690
-#define HDMI_PLL4_VAL 0x1a
+#define HDMI_PLL4_VAL 0x15
 #define m_PLL4_DIVIDER_CTRL_5 (1 << 5)
 #define m_PLL4_DIVIDER_CTRL_3 (1 << 3)
 #define m_PLL4_DIVIDER_CTRL_2 (1 << 2)
@@ -250,6 +253,7 @@ struct axiado_connector {
 	 m_PLL5_DIVIDER_CTRL_3 | m_PLL5_DIVIDER_CTRL_5)
 
 #define HDMI_PLL6 0x698
+#define HDMI_PLL6_VAL 0x42
 #define m_PLL6_DIVIDER_CTRL_5 (1 << 5)
 #define m_PLL6_DIVIDER_CTRL_2 (1 << 2)
 #define m_PLL6_DIVIDER_CTRL_1 (1 << 1)
@@ -267,15 +271,19 @@ struct axiado_connector {
 
 #define HDMI_PLL11 0x6a8
 #define m_PLL11_DIVIDER_CTRL_0 (1 << 0)
+#define HDMI_PLL11_VAL 0x0F
 
 #define HDMI_PLL12 0x6ac
+
 #define HDMI_PLL13 0x6b0
+#define HDMI_PLL13_VAL 0x14
 #define m_PLL13_DIVIDER_CTRL_6 (1 << 6)
 #define m_PLL13_DIVIDER_CTRL_2 (1 << 2)
 #define m_PLL13 (m_PLL13_DIVIDER_CTRL_2 | m_PLL13_DIVIDER_CTRL_6)
 
 #define HDMI_PLL14 0x6b4
 #define m_PLL14_DIVIDER_CTRL_2 (1 << 2)
+#define HDMI_PLL14_VAL 0x09
 
 #define HDMI_PRE_LOCK 0x6a4
 #define HDMI_POST_LOCK 0x6bc
@@ -296,6 +304,20 @@ struct axiado_connector {
 #define m_HDMI_SERIAL                                                \
 	(m_SERIAL_CTRL_DATA_CHANEEL2 | m_SERIAL_CTRL_DATA_CHANEEL1 | \
 	 m_SERIAL_CTRL_DATA_CHANEEL0)
+
+#define HDMI_SYS_DEF1 0x6FC
+#define HDMI_SYS_DEF2 0x700
+#define HDMI_SYS_DEF3 0x6D4
+#define HDMI_SYS_DEF4 0x6CC
+#define HDMI_SYS_DEF5 0x6EC
+#define HDMI_SYS_RESET1 0x0714
+#define HDMI_SYS_RESET2 0x0720
+
+#define HDMI_RESET_VAL 0x00
+#define HDMI_RESET_VAL1 0x01
+#define HDMI_RESET_VAL2 0x1F
+#define HDMI_REG_OFFSET 0x04
+
 
 /* sEtting HDMI VBIST */
 #define HDMI_VBIST 0x324
@@ -421,7 +443,7 @@ enum {
 #define v_TMDS_CHG_PWR_DOWN (1 << 0)
 #define TMDS_SYNC_VAL0 0x00
 #define TMDS_SYNC_VAL1 0x01
-#define TMDS_SYNC_VAL2 0x8F
+#define TMDS_SYNC_VAL2 0x80
 
 #define HDMI_PHY_CHG_PWR 0xe1
 #define v_CLK_CHG_PWR(n) ((n & 1) << 3)
@@ -478,6 +500,7 @@ enum {
 /* Setting BIAS current registers */
 #define HDMI_BIAS_CIRCUIT 0x6C0
 #define m_BIAS_CONTROL (1 << 2)
+#define HDMI_BIAS_DEF 0x08
 
 #define HDMI_RX_SENSE 0x730
 #define m_RX_SENSE_CLOCK_CHANNEL (1 << 3)

@@ -6,6 +6,8 @@
 #ifndef __AXIADO_LCDC_H__
 #define __AXIADO_LCDC_H__
 
+#include<linux/debugfs.h>
+
 #define DB9000_FB_MAX_WIDTH 4095
 #define DB9000_FB_MAX_HEIGHT 4095
 #define RZN1_REGS ((void *)1)
@@ -111,6 +113,7 @@ struct db9000 {
 	struct clk *lcd_eclk;
 	struct fps_info plane_fpsi[DB9000_MAX_LAYER];
 	struct drm_atomic_state *suspend_state;
+	struct dentry *debugfs;
 	u8 bpp;
 	u32 paddr_disp;
 	u32 irqstatus;
@@ -135,6 +138,8 @@ enum DB9000_CR1_BPP {
 	DB9000_CR1_BPP_24bpp
 } DB9000_CR1_BPP_VAL;
 
+#define DB9000_REG_OFFSET 0x04
+#define DB9000_DEF_VAL 0x00000000
 /* Horizontal Timing Register, Offset 0x008 */
 /* Horizontal Front Porch */
 #define DB9000_HTR_HFP(x) ((x) << 0)

@@ -205,7 +205,61 @@ static void axiado_hdmi_bias_on(struct axiado_hdmi *hdmi)
  */
 static void axiado_hdmi_reset(struct axiado_hdmi *hdmi)
 {
-	u32 val, msk;
+	u32 val, msk, i, j;
+
+	hdmi_writeb(hdmi, HDMI_SYS_CTRL, HDMI_RESET_VAL);
+	hdmi_writeb(hdmi, HDMI_BIAS_CIRCUIT, HDMI_BIAS_DEF);
+	hdmi_writeb(hdmi, HDMI_PLL0, HDMI_RESET_VAL1);
+	hdmi_writeb(hdmi, HDMI_PLL1, HDMI_RESET_VAL1);
+	hdmi_writeb(hdmi, HDMI_PLL2, HDMI_PLL2_VAL);
+	hdmi_writeb(hdmi, HDMI_PLL3, HDMI_SYS_PWR_ON);
+	hdmi_writeb(hdmi, HDMI_PLL4, HDMI_PLL4_VAL);
+	hdmi_writeb(hdmi, HDMI_PLL5, HDMI_PLL5_VAL);
+	hdmi_writeb(hdmi, HDMI_PLL6, HDMI_PLL6_VAL);
+	hdmi_writeb(hdmi, HDMI_RX_SENSE, HDMI_RESET_VAL);
+	hdmi_writeb(hdmi, HDMI_PLL7, HDMI_RESET_VAL);
+	hdmi_writeb(hdmi, HDMI_PLL8, HDMI_RESET_VAL);
+	hdmi_writeb(hdmi, HDMI_PLL9, HDMI_RESET_VAL);
+	hdmi_writeb(hdmi, HDMI_PLL10, HDMI_RESET_VAL1);
+	hdmi_writeb(hdmi, HDMI_PLL11, HDMI_PLL11_VAL);
+	hdmi_writeb(hdmi, HDMI_PLL12, HDMI_RESET_VAL1);
+	hdmi_writeb(hdmi, HDMI_PLL13, HDMI_PLL13_VAL);
+	hdmi_writeb(hdmi, HDMI_PLL14, HDMI_PLL14_VAL);
+	hdmi_writeb(hdmi, HDMI_SYS_RESET1, HDMI_REG_OFFSET);
+	j = HDMI_SYS_RESET2;
+	for (i = 0; i < 4; i++) {
+		hdmi_writeb(hdmi, j, HDMI_RESET_VAL);
+		j = j + HDMI_REG_OFFSET;
+	}
+	hdmi_writeb(hdmi, HDMI_SYS_DEF1, HDMI_RESET_VAL);
+	hdmi_writeb(hdmi, HDMI_SYS_DEF2, HDMI_RESET_VAL);
+	j = HDMI_SYS_DEF3;
+	for (i = 0; i < 4; i++) {
+		hdmi_writeb(hdmi, j, HDMI_RESET_VAL2);
+		j = j + HDMI_REG_OFFSET;
+	}
+
+	hdmi_writeb(hdmi, HDMI_SYS_DEF4, HDMI_RESET_VAL);
+	j = HDMI_SYS_DEF5;
+	for (i = 0; i < 3; i++) {
+		hdmi_writeb(hdmi, j, HDMI_RESET_VAL);
+		j = j + HDMI_REG_OFFSET;
+	}
+	hdmi_writeb(hdmi, HDMI_LDO, HDMI_RESET_VAL);
+	hdmi_writeb(hdmi, HDMI_SERIAL, HDMI_RESET_VAL1);
+	hdmi_writeb(hdmi, HDMI_SYS_CTRL, HDMI_SYS_PWR_ON);
+	hdmi_writeb(hdmi, HDMI_SYS_CTRL1, HDMI_RESET_VAL1);
+	hdmi_writeb(hdmi, HDMI_SYS_CTRL2,  HDMI_CTRL2_VAL);
+	hdmi_writeb(hdmi, HDMI_CONTROL_PACKET_BUF_INDEX, HDMI_RESET_VAL);
+	j =  HDMI_CONTROL_PACKET_ADDR;
+	for (i = 0 ; i < 9; i++) {
+		hdmi_writeb(hdmi, j, HDMI_RESET_VAL);
+		j = j + HDMI_REG_OFFSET;
+	}
+
+	hdmi_writeb(hdmi, HDMI_SYS_CTRL, HDMI_SYS_PWR_ON);
+	hdmi_writeb(hdmi, HDMI_TMDS_SYNC, HDMI_RESET_VAL1);
+	hdmi_writeb(hdmi, HDMI_TMDS_SYS_CTL, TMDS_SYNC_VAL2);
 
 	hdmi_modb(hdmi, HDMI_SYS_CTRL, m_RST_DIGITAL, v_NOT_RST_DIGITAL);
 	usleep_range(100, 110);
@@ -225,6 +279,7 @@ static int axiado_hdmi_upload_frame(struct axiado_hdmi *hdmi, int setup_rc,
 				   u32 mask, u32 disable, u32 enable)
 {
 	hdmi_writeb(hdmi, HDMI_CONTROL_PACKET_BUF_INDEX, frame_index);
+
 	if (setup_rc >= 0) {
 		u8 packed_frame[HDMI_MAXIMUM_INFO_FRAME_SIZE];
 		ssize_t rc, i;
@@ -684,6 +739,41 @@ static struct i2c_adapter *axiado_hdmi_i2c_adapter(struct axiado_hdmi *hdmi)
 	return adap;
 }
 
+static int hdmi_reinit_state(struct seq_file *s, void *data)
+{
+	struct axiado_hdmi *hdmi = (struct axiado_hdmi *)dev_get_drvdata(s->private);
+	int err = -1;
+
+	if (hdmi == NULL) {
+		pr_err("HDMI Info not Obtained\n");
+		return err;
+	}
+
+	err = axiado_hdmi_setup(hdmi, &hdmi->previous_mode);
+
+	if (err < 0)
+		seq_puts(s, "HDMI reinit failed\n");
+	else
+		seq_puts(s, "HDMI reinit Done\n");
+
+	return err;
+}
+
+static void ax_hdmi_debugfs_exit(struct axiado_hdmi *hdmi)
+{
+	debugfs_remove_recursive(hdmi->debugfs);
+	hdmi->debugfs = NULL;
+}
+
+static void ax_hdmi_debugfs_init(struct axiado_hdmi *hdmi)
+{
+	hdmi->debugfs = debugfs_create_dir("hdmi", NULL);
+
+	debugfs_create_devm_seqfile(hdmi->dev, "hdmi_reinit_state", hdmi->debugfs,
+			hdmi_reinit_state);
+
+}
+
 static int axiado_hdmi_bind(struct device *dev, struct device *master, void *data)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -768,6 +858,10 @@ static int axiado_hdmi_bind(struct device *dev, struct device *master, void *dat
 					dev_name(dev), hdmi);
 	if (ret < 0)
 		goto err_cleanup_hdmi;
+
+	if (IS_ENABLED(CONFIG_DEBUG_FS))
+		ax_hdmi_debugfs_init(hdmi);
+
 	return 0;
 err_cleanup_hdmi:
 	hdmi->connector.funcs->destroy(&hdmi->connector);
@@ -783,6 +877,8 @@ static void axiado_hdmi_unbind(struct device *dev, struct device *master, void *
 {
 	struct axiado_hdmi *hdmi = dev_get_drvdata(dev);
 
+	if (IS_ENABLED(CONFIG_DEBUG_FS))
+		ax_hdmi_debugfs_exit(hdmi);
 	hdmi->connector.funcs->destroy(&hdmi->connector);
 	hdmi->encoder.funcs->destroy(&hdmi->encoder);
 	i2c_put_adapter(hdmi->ddc);
