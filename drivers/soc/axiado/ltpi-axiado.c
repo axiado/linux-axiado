@@ -176,7 +176,7 @@ static int ax3000_ltpi_get(struct gpio_chip *chip, unsigned int offset)
 				 REG_LTPI_DI_ADRS_OFFSET + GET_BANK(rel_offset) * 4);
 	mutex_unlock(&ltpi->lock);
 
-	return IS_BIT_SET(bank_val, GET_POS(rel_offset));
+	return !!(bank_val & BIT(GET_POS(rel_offset)));
 }
 
 static int ax3000_ltpi_dir_in(struct gpio_chip *chip, unsigned int offset)
@@ -304,7 +304,7 @@ static irqreturn_t ltpi_irq_thread(int irq, void *data)
 
 	for_each_set_bit(hwirq, cha, ltpi->lines) {
 		/* unmnask: 0 */
-		if (!IS_BIT_SET(ltpi->mask[GET_BANK(hwirq)], GET_POS(hwirq))) {
+		if (!(ltpi->mask[GET_BANK(hwirq)] & BIT(GET_POS(hwirq)))) {
 			pr_debug("ltpi irq: fire %d\n", hwirq);
 			generic_handle_irq(irq_find_mapping(ltpi->irq_domain, hwirq));
 		}
@@ -454,6 +454,10 @@ static void local_capabilities_configure(struct ax3000_ltpi *ltpi) {
 	val |= RESET_BIT;
 	ltpi_reg_write(ltpi, REG_LTPI_CONTROL_STATUS_REG1_OFFSET, val);
 
+	/* Update the local capabilities based on the DTS entry */
+	ltpi_reg_write(ltpi, REG_LTPI_LOCAL_CAPA_LOW_OFFSET, ltpi->cap_l);
+	ltpi_reg_write(ltpi, REG_LTPI_LOCAL_CAPA_HIGH_OFFSET, ltpi->cap_h);
+
 	/* Compare the Local and HPM capabilities and update the Local configuration */
 	new_local_val_l |= (remote_val_l & local_val_l) &
 				(LTPI_CAP_GPIO_BIT |
@@ -488,6 +492,217 @@ static void local_capabilities_configure(struct ax3000_ltpi *ltpi) {
 	ltpi_reg_write(ltpi, REG_LTPI_CONTROL_STATUS_REG1_OFFSET, val);
 }
 
+/*
+ * ltpi_gpio_probe - gpio probe after link established
+ * @ltpi: a pointer for struct ax3000_ltpi
+ */
+static int ltpi_gpio_probe(struct ax3000_ltpi *ltpi)
+{
+	struct platform_device *pdev =
+		container_of_const(ltpi->dev, struct platform_device, dev);
+
+	struct gpio_irq_chip *girq;
+	int irq;
+	int rc = 0;
+	int i;
+	u32 nl_gpio_count;
+	u32 i2c_channels;
+
+	if (param_nl_ngpios == -1) {
+		rc = device_property_read_u32(&pdev->dev, "ngpios", &ltpi->lines);
+		if (rc < 0) {
+			dev_err(&pdev->dev, "could not read ngpios property\n");
+			return -EINVAL;
+		}
+		dev_info(&pdev->dev, "Using DTS ngpios = %d\n", ltpi->lines);
+	} else {
+		ltpi->lines = param_nl_ngpios;
+		dev_info(&pdev->dev, "Using parameter ngpios = %d\n", ltpi->lines);
+	}
+
+	if (ltpi->lines > MAX_GPIO_PINS) {
+		dev_err(&pdev->dev,
+			"lines-per-function is greater than %d pins\n",
+			MAX_GPIO_PINS);
+		return -EINVAL;
+	}
+
+	ltpi->num_banks = (ltpi->lines + PINS_PER_GPIO_BANK - 1) / PINS_PER_GPIO_BANK;
+
+	dev_dbg(&pdev->dev, "lines %d, banks %d\n", ltpi->lines,
+		ltpi->num_banks);
+
+	ltpi->mask = devm_kcalloc(&pdev->dev, ltpi->num_banks, sizeof(u32),
+				  GFP_KERNEL);
+	if (!ltpi->mask)
+		return -ENOMEM;
+
+	ltpi->inputs_cache = devm_kcalloc(&pdev->dev, ltpi->num_banks,
+					  sizeof(u32), GFP_KERNEL);
+	if (!ltpi->inputs_cache)
+		return -ENOMEM;
+
+	ltpi->outputs_cache = devm_kcalloc(&pdev->dev, ltpi->num_banks,
+					   sizeof(u32), GFP_KERNEL);
+	if (!ltpi->outputs_cache)
+		return -ENOMEM;
+
+	rc = of_property_read_u32_array(pdev->dev.of_node, "dout-init",
+					ltpi->outputs_cache, ltpi->num_banks);
+	if (rc) {
+		dev_err(&pdev->dev,
+			"Failed to read 'dout-init', check property count in DTB. Error: %d\n",
+			rc);
+		return rc;
+	}
+
+	/* module parameter first */
+	if (param_nl_num_gpio_args == ltpi->num_banks) {
+		for (i = 0; i < ltpi->num_banks; i++)
+			update_bank(ltpi->outputs_cache, i, param_nl_gpio_vals[i]);
+	}
+
+	for (i = 0; i < ltpi->num_banks; i++) {
+		ltpi_reg_write(ltpi, REG_LTPI_DO_ADRS_OFFSET + (i * 4),
+			       ltpi->outputs_cache[i]);
+		dev_info(&pdev->dev, "Default dout-init[%d] = 0x%08x\n", i,
+			 ltpi->outputs_cache[i]);
+	}
+
+	irq = irq_of_parse_and_map(pdev->dev.of_node, 0);
+
+	if (!irq) {
+		dev_err(&pdev->dev, "ltpi : failed to get irq = %d\n", irq);
+		return -EINVAL;
+	}
+
+	/* mask all interrupts */
+	for (i = 0; i < ltpi->num_banks; i++) {
+		ltpi->mask[i] = 0xffffffff;
+		ltpi_reg_write(ltpi, REG_LTPI_MASK_ADRS_OFFSET + (i * 4),
+			       ltpi->mask[i]);
+	}
+
+	ltpi->irq_domain = irq_domain_create_simple(pdev->dev.fwnode,
+						    ltpi->lines, 0,
+						    &ltpi_irq_domain_ops, ltpi);
+	if (!ltpi->irq_domain)
+		return -ENOMEM;
+
+	ltpi->chip.label = dev_name(&pdev->dev);
+	ltpi->chip.parent = NULL; /* to use custom irq_domain */
+	ltpi->chip.ngpio = ltpi->lines * 2; /* inputs + outpus */
+	ltpi->chip.owner = THIS_MODULE;
+	ltpi->chip.base = -1;
+	ltpi->chip.direction_input = ax3000_ltpi_dir_in;
+	ltpi->chip.direction_output = ax3000_ltpi_dir_out;
+	ltpi->chip.get = ax3000_ltpi_get;
+	ltpi->chip.set = ax3000_ltpi_set;
+	ltpi->chip.can_sleep = true;
+
+	ltpi->irq.name = "LTPI-IRQ";
+	ltpi->irq.irq_ack = ltpi_ack_irq;
+	ltpi->irq.irq_mask = ltpi_mask_irq;
+	ltpi->irq.irq_unmask = ltpi_unmask_irq;
+	ltpi->irq.irq_set_type = ltpi_set_irq_type;
+	ltpi->irq.irq_request_resources = ltpi_irq_reqres;
+	ltpi->irq.irq_release_resources = ltpi_irq_relres;
+
+	ltpi->irq.flags |= IRQCHIP_IMMUTABLE; /* prevent change from gpiolib */
+
+	girq = &ltpi->chip.irq;
+	girq->chip = &ltpi->irq;
+	girq->default_type = IRQ_TYPE_NONE;
+	girq->domain = ltpi->irq_domain;
+	girq->handler = handle_edge_irq;
+	girq->num_parents = 1;
+	girq->parent_handler = NULL;
+	girq->parents =
+		devm_kcalloc(&pdev->dev, 1, sizeof(*girq->parents), GFP_KERNEL);
+	if (!girq->parents)
+		return -ENOMEM;
+	girq->parents[0] = irq;
+
+	rc = devm_request_threaded_irq(&pdev->dev, irq, NULL, ltpi_irq_thread,
+				       IRQF_ONESHOT, "ltpi-gpio", ltpi);
+	if (rc) {
+		dev_err(&pdev->dev, "Failed to request parent IRQ %d: %d\n",
+			girq->parents[0], rc);
+		return rc;
+	}
+
+	rc = devm_gpiochip_add_data(&pdev->dev, &ltpi->chip, ltpi);
+	if (rc < 0) {
+		dev_err(&pdev->dev, "Could not register gpiochip, %d\n", rc);
+		irq_domain_remove(ltpi->irq_domain);
+		return rc;
+	}
+
+#ifdef CONFIG_AXIADO_LTPI_DEBUGFS
+	if (ltpi->irq_domain == irq_find_host(pdev->dev.of_node))
+		pr_info("LTPI PROBE SUCCESS: IRQ domain was correctly registered.\n");
+
+	setup_ltpi_debugfs(ltpi);
+#endif
+	read_all_banks(&ltpi->chip, ltpi->inputs_cache, 0);
+	return 0;
+}
+
+
+
+/*
+ * ltpi_link_workqueue - Workqueue function to ltpi link state
+ * @work: Work structure containing LTPI device data
+ */
+static void ltpi_link_workqueue(struct work_struct *work)
+{
+	struct ax3000_ltpi *ltpi =
+		container_of_const(work, struct ax3000_ltpi, ltpi_link_work.work);
+	int rc = 0;
+	u32 val;
+
+	if (link_status_check(ltpi))
+		local_capabilities_configure(ltpi);
+
+	rc = regmap_read(ltpi->regmap, ltpi->regmap_base_offset, &val);
+
+	if (!rc && (val & LINK_STATUS_READY_BIT)) {
+		dev_info(ltpi->dev, "LTPI Link is in Operational state\n");
+		return;
+	}
+	if (ltpi->link_retry < LTPI_LINK_MAX_RETRIES) {
+		ltpi->link_retry++;
+		queue_delayed_work(system_wq, &ltpi->ltpi_link_work,
+				msecs_to_jiffies(LTPI_LINK_RETRY_INTERVAL_MS));
+	} else {
+		dev_err(ltpi->dev, "LTPI Link training timed out after %d retries\n",
+				LTPI_LINK_MAX_RETRIES);
+	}
+}
+
+static ssize_t link_show(struct device *dev, struct device_attribute *attr,
+			    char *buf)
+{
+	struct ax3000_ltpi *ltpi = dev_get_drvdata(dev);
+	u8 val = ((ltpi_reg_read(ltpi, REG_LTPI_LINK_STATUS_OFFSET) >> LOCAL_STATE_SHIFT) & 0xF);
+	switch (val) {
+		case LINK_DETECT: return sysfs_emit(buf, "detect\n");
+		case LINK_SPEED: return sysfs_emit(buf, "speed\n");
+		case ADVERTISE: return sysfs_emit(buf, "advertise\n");
+		case CONFIGURATION: return sysfs_emit(buf, "configuration\n");
+		case OPERATIONAL: return sysfs_emit(buf, "operational\n");
+	}
+	return 0;
+}
+static DEVICE_ATTR_RO(link);
+static struct attribute *link_attrs[] = {
+	&dev_attr_link.attr,
+	NULL,
+};
+static const struct attribute_group link_attr_group = {
+	.attrs = link_attrs
+};
+
 /**
  * ltpi_probe - Probe function for LTPI GPIO driver
  * @spi: Platform device structure
@@ -495,14 +710,10 @@ static void local_capabilities_configure(struct ax3000_ltpi *ltpi) {
  */
 static int ltpi_probe(struct platform_device *spi)
 {
-	struct gpio_irq_chip *girq;
 	struct ax3000_ltpi *ltpi;
-	int irq;
 	int rc = 0;
-	int i;
 	u32 nl_gpio_count;
 	u32 i2c_channels;
-	u32 val;
 
 #ifdef CONFIG_AXIADO_LTPI_REGMAP
 	u32 reg_base_offset = 0;
@@ -588,173 +799,39 @@ static int ltpi_probe(struct platform_device *spi)
 	if (device_property_read_bool(&spi->dev, "ltpi-support-uart1"))
 		ltpi->cap_h |= LTPI_CAP_UART1_EN_BIT;
 
-	/* Update the local capabilities based on the DTS entry */
-	ltpi_reg_write(ltpi, REG_LTPI_LOCAL_CAPA_LOW_OFFSET, ltpi->cap_l);
-	ltpi_reg_write(ltpi, REG_LTPI_LOCAL_CAPA_HIGH_OFFSET, ltpi->cap_h);
-
-	if (link_status_check(ltpi))
-		local_capabilities_configure(ltpi);
-	else
-		dev_info(&spi->dev, "LTPI is in Operational state");
-
-	/* Delay 5 sec for the Link status change */
-	rc = regmap_read_poll_timeout(ltpi->regmap, ltpi->regmap_base_offset,
-			val, (val & LINK_STATUS_READY_BIT), 10, TIMEOUT_DELAY);
-
-	if (rc) {
-		dev_err(&spi->dev, "LTPI Link failed");
-		return -ETIMEDOUT;
-	}
-	else
-		dev_info(&spi->dev, "LTPI Link is in Operational state");
-
-	if (param_nl_ngpios == -1) {
-		rc = device_property_read_u32(&spi->dev, "ngpios", &ltpi->lines);
-		if (rc < 0) {
-			dev_err(&spi->dev, "could not read ngpios property\n");
-			return -EINVAL;
-		}
-		dev_info(&spi->dev, "Using DTS ngpios = %d\n", ltpi->lines);
-	} else {
-		ltpi->lines = param_nl_ngpios;
-		dev_info(&spi->dev, "Using parameter ngpios = %d\n", ltpi->lines);
-	}
-
-	if (ltpi->lines > MAX_GPIO_PINS) {
-		dev_err(&spi->dev,
-			"lines-per-function is greater than %d pins\n",
-			MAX_GPIO_PINS);
-		return -EINVAL;
-	}
-
-	ltpi->num_banks = (ltpi->lines + PINS_PER_GPIO_BANK - 1) / PINS_PER_GPIO_BANK;
-
-	dev_dbg(&spi->dev, "lines %d, banks %d\n", ltpi->lines,
-		ltpi->num_banks);
-
-	ltpi->mask = devm_kcalloc(&spi->dev, ltpi->num_banks, sizeof(u32),
-				  GFP_KERNEL);
-	if (!ltpi->mask)
-		return -ENOMEM;
-
-	ltpi->inputs_cache = devm_kcalloc(&spi->dev, ltpi->num_banks,
-					  sizeof(u32), GFP_KERNEL);
-	if (!ltpi->inputs_cache)
-		return -ENOMEM;
-
-	ltpi->outputs_cache = devm_kcalloc(&spi->dev, ltpi->num_banks,
-					   sizeof(u32), GFP_KERNEL);
-	if (!ltpi->outputs_cache)
-		return -ENOMEM;
-
-	rc = of_property_read_u32_array(spi->dev.of_node, "dout-init",
-					ltpi->outputs_cache, ltpi->num_banks);
-	if (rc) {
-		dev_err(&spi->dev,
-			"Failed to read 'dout-init', check property count in DTB. Error: %d\n",
-			rc);
-		return rc;
-	}
-
-	/* module parameter first */
-	if (param_nl_num_gpio_args == ltpi->num_banks) {
-		for (i = 0; i < ltpi->num_banks; i++)
-			update_bank(ltpi->outputs_cache, i, param_nl_gpio_vals[i]);
-	}
-
-	for (i = 0; i < ltpi->num_banks; i++) {
-		ltpi_reg_write(ltpi, REG_LTPI_DO_ADRS_OFFSET + (i * 4),
-			       ltpi->outputs_cache[i]);
-		dev_info(&spi->dev, "Default dout-init[%d] = 0x%08x\n", i,
-			 ltpi->outputs_cache[i]);
-	}
-
-	irq = irq_of_parse_and_map(spi->dev.of_node, 0);
-
-	if (!irq) {
-		dev_err(&spi->dev, "ltpi : failed to get irq = %d\n", irq);
-		return -EINVAL;
-	}
-
-	/* mask all interrupts */
-	for (i = 0; i < ltpi->num_banks; i++) {
-		ltpi->mask[i] = 0xffffffff;
-		ltpi_reg_write(ltpi, REG_LTPI_MASK_ADRS_OFFSET + (i * 4),
-			       ltpi->mask[i]);
-	}
 
 	INIT_WORK(&ltpi->ltpi_work, ltpi_workqueue);
+	INIT_DELAYED_WORK(&ltpi->ltpi_link_work, ltpi_link_workqueue);
 	mutex_init(&ltpi->lock);
 
-	ltpi->irq_domain = irq_domain_create_simple(spi->dev.fwnode,
-						    ltpi->lines, 0,
-						    &ltpi_irq_domain_ops, ltpi);
-	if (!ltpi->irq_domain)
-		return -ENOMEM;
+	ltpi->link_retry = 0;
 
-	ltpi->chip.label = dev_name(&spi->dev);
-	ltpi->chip.parent = NULL; /* to use custom irq_domain */
-	ltpi->chip.ngpio = ltpi->lines * 2; /* inputs + outpus */
-	ltpi->chip.owner = THIS_MODULE;
-	ltpi->chip.base = -1;
-	ltpi->chip.direction_input = ax3000_ltpi_dir_in;
-	ltpi->chip.direction_output = ax3000_ltpi_dir_out;
-	ltpi->chip.get = ax3000_ltpi_get;
-	ltpi->chip.set = ax3000_ltpi_set;
-	ltpi->chip.can_sleep = true;
-
-	ltpi->irq.name = "LTPI-IRQ";
-	ltpi->irq.irq_ack = ltpi_ack_irq;
-	ltpi->irq.irq_mask = ltpi_mask_irq;
-	ltpi->irq.irq_unmask = ltpi_unmask_irq;
-	ltpi->irq.irq_set_type = ltpi_set_irq_type;
-	ltpi->irq.irq_request_resources = ltpi_irq_reqres;
-	ltpi->irq.irq_release_resources = ltpi_irq_relres;
-
-	ltpi->irq.flags |= IRQCHIP_IMMUTABLE; /* prevent change from gpiolib */
-
-	girq = &ltpi->chip.irq;
-	girq->chip = &ltpi->irq;
-	girq->default_type = IRQ_TYPE_NONE;
-	girq->domain = ltpi->irq_domain;
-	girq->handler = handle_edge_irq;
-	girq->num_parents = 1;
-	girq->parent_handler = NULL;
-	girq->parents =
-		devm_kcalloc(&spi->dev, 1, sizeof(*girq->parents), GFP_KERNEL);
-	if (!girq->parents)
-		return -ENOMEM;
-	girq->parents[0] = irq;
-
-	rc = devm_request_threaded_irq(&spi->dev, irq, NULL, ltpi_irq_thread,
-				       IRQF_ONESHOT, "ltpi-gpio", ltpi);
+	/* The initial state of the LTPI GPIO output can affect how the remote eFUSE behaves
+	 * during the power-on sequence. Therefore, it is important to initialize the GPIO
+	 * before the LTPI link is established.
+	 */
+	rc = ltpi_gpio_probe(ltpi);
 	if (rc) {
-		dev_err(&spi->dev, "Failed to request parent IRQ %d: %d\n",
-			girq->parents[0], rc);
+		dev_err(ltpi->dev, "LTPI GPIO probe fails\n");
 		return rc;
 	}
+	queue_delayed_work(system_wq, &ltpi->ltpi_link_work, msecs_to_jiffies(100));
 
-	rc = devm_gpiochip_add_data(&spi->dev, &ltpi->chip, ltpi);
-	if (rc < 0) {
-		dev_err(&spi->dev, "Could not register gpiochip, %d\n", rc);
-		irq_domain_remove(ltpi->irq_domain);
-		return rc;
-	}
-
-#ifdef CONFIG_AXIADO_LTPI_DEBUGFS
-	if (ltpi->irq_domain == irq_find_host(spi->dev.of_node))
-		pr_info("LTPI PROBE SUCCESS: IRQ domain was correctly registered.\n");
-
-	setup_ltpi_debugfs(ltpi);
-#endif
-	read_all_banks(&ltpi->chip, ltpi->inputs_cache, 0);
-	return 0;
+	rc = sysfs_create_group(&spi->dev.kobj, &link_attr_group);
+	if (rc)
+		dev_err(&spi->dev, "Fail to create sysfs\n");
+	return rc;
 }
 
 static int ltpi_remove(struct platform_device *spi)
 {
 	struct ax3000_ltpi *ltpi = platform_get_drvdata(spi);
 	int hwirq;
+
+	cancel_work_sync(&ltpi->ltpi_work);
+	cancel_delayed_work_sync(&ltpi->ltpi_link_work);
+
+	sysfs_remove_group(&spi->dev.kobj, &link_attr_group);
 
 #ifdef CONFIG_AXIADO_LTPI_DEBUGFS
 	debugfs_remove_recursive(ltpi->debugfs_root);
