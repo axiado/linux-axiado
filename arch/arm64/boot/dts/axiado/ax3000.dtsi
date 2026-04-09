@@ -713,6 +713,21 @@
 					interrupts = <18 IRQ_TYPE_LEVEL_HIGH>;
 					interrupt-controller;
 					#interrupt-cells = <2>;
+					/* Enable the local capabilities */
+					ltpi-support-gpio;
+					ltpi-support-i2c;
+					ltpi-support-uart;
+					ltpi-support-data;
+					/* Number of NL GPIOs to be supported */
+					/* SCM supports maximum 128 bits - 0x80 */
+					ltpi-support-nl-gpio-count = <0x80>;
+					/* LTPI - I2C supporting channels */
+					/* bit 0 - ch 0, bit 1 - ch 1, ... */
+					/* SCM supports maximum 6 channels */
+					ltpi-support-i2c-channels = <0x3F>;
+					/* LTPI - I2C Echo support */
+					ltpi-support-i2c-echo;
+					ltpi-support-uart0;
 					/* Supports maximum of 128 pins */
 					ngpios = <128>;
 					dout-init = <0x00000000 0x00000000 0x00000000 0x00000000>;
