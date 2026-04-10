@@ -196,8 +196,7 @@ struct sdhci_arasan_data {
 /* Controller does not have CD wired and will not function normally without */
 #define SDHCI_ARASAN_QUIRK_FORCE_CDTEST	BIT(0)
 /* Controller immediately reports SDHCI_CLOCK_INT_STABLE after enabling the
- * internal clock even when the clock isn't stable
- */
+ * internal clock even when the clock isn't stable */
 #define SDHCI_ARASAN_QUIRK_CLOCK_UNSTABLE BIT(1)
 /*
  * Some of the Arasan variations might not have timing requirements
@@ -1470,6 +1469,17 @@ static struct sdhci_arasan_of_data intel_keembay_sdio_data = {
 	.clk_ops = &arasan_clk_ops,
 };
 
+static const struct sdhci_pltfm_data sdhci_arasan_axiado_pdata = {
+	.ops = &sdhci_arasan_ops,
+	.quirks = SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN |
+			SDHCI_QUIRK_BROKEN_CQE,
+};
+
+static struct sdhci_arasan_of_data sdhci_arasan_axiado_data = {
+	.pdata = &sdhci_arasan_axiado_pdata,
+	.clk_ops = &arasan_clk_ops,
+};
+
 static const struct of_device_id sdhci_arasan_of_match[] = {
 	/* SoC-specific compatible strings w/ soc_ctl_map */
 	{
@@ -1496,6 +1506,10 @@ static const struct of_device_id sdhci_arasan_of_match[] = {
 		.compatible = "intel,keembay-sdhci-5.1-sdio",
 		.data = &intel_keembay_sdio_data,
 	},
+	{
+		.compatible = "axiado,ax3000-sdhci-5.1-emmc",
+		.data = &sdhci_arasan_axiado_data,
+	},
 	/* Generic compatible below here */
 	{
 		.compatible = "arasan,sdhci-8.9a",
@@ -1503,10 +1517,6 @@ static const struct of_device_id sdhci_arasan_of_match[] = {
 	},
 	{
 		.compatible = "arasan,sdhci-5.1",
-		.data = &sdhci_arasan_generic_data,
-	},
-	{
-		.compatible = "axiado,ax3000-sdhci-5.1-emmc",
 		.data = &sdhci_arasan_generic_data,
 	},
 	{
@@ -1973,20 +1983,7 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 	}
 
 	sdhci_arasan->phy = ERR_PTR(-ENODEV);
-	if (of_device_is_compatible(np, "axiado,ax3000-sdhci-5.1-emmc")) {
-		sdhci_arasan->phy = devm_phy_get(dev, "phy_arasan");
-		if (IS_ERR(sdhci_arasan->phy)) {
-			ret = dev_err_probe(dev, PTR_ERR(sdhci_arasan->phy),
-					    "No phy for axiado,ax3000-emmc.\n");
-			goto unreg_clk;
-		}
-
-		ret = phy_init(sdhci_arasan->phy);
-		if (ret < 0) {
-			dev_err(dev, "phy_init err.\n");
-			goto unreg_clk;
-		}
-	} else if (of_device_is_compatible(np, "arasan,sdhci-5.1")) {
+	if (of_device_is_compatible(np, "arasan,sdhci-5.1")) {
 		sdhci_arasan->phy = devm_phy_get(dev, "phy_arasan");
 		if (IS_ERR(sdhci_arasan->phy)) {
 			ret = dev_err_probe(dev, PTR_ERR(sdhci_arasan->phy),
