@@ -128,6 +128,7 @@
 
 	display-subsystem {
 		compatible = "axiado,display-subsystem";
+		ports = <&disp_out>;
 	};
 
 	clocks {
