@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * DTS file for Axiado AX3005 SoC based EVK
+ */
+
+/dts-v1/;
+
+#include "scm3005-mt.dtsi"
+
+/ {
+	model = "Axiado AX3005 SoC based SCM3005 EVK";
+};
+
