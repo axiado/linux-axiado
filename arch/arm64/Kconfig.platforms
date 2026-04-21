@@ -37,7 +37,22 @@ config ARCH_AXIADO
        bool "Axiado SoC Family"
        select GPIOLIB
        help
-         This enables support for Axiado SoC family like AX3000
+         This enables support for Axiado SoC family
+
+if ARCH_AXIADO
+
+config ARCH_AX3000
+	bool "Axiado Ax3000 SoC family"
+	help
+	  This enables support for the axiado ax3000 SoC family.
+
+
+config ARCH_AX3005
+	bool "Axiado Ax3005 SoC family"
+	help
+	  This enables support for the axiado ax3005 SoC family.
+
+endif
 
 menuconfig ARCH_BCM
 	bool "Broadcom SoC Support"
