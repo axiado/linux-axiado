@@ -1,0 +1,1289 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Copyright (c) 2026 Axiado Corporation.
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+/memreserve/ 0x80002fa0 0x00000008;
+/ {
+	model = "Axiado AX3005";
+	interrupt-parent = <&gic500>;
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	cpus {
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x0 0x0>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0x80002fa0>;
+			d-cache-size = <0x8000>;
+			d-cache-line-size = <64>;
+			d-cache-sets = <128>;
+			i-cache-size = <0x8000>;
+			i-cache-line-size = <64>;
+			i-cache-sets = <256>;
+			next-level-cache = <&l2>;
+		};
+
+		cpu1: cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x0 0x1>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0x80002fa0>;
+			d-cache-size = <0x8000>;
+			d-cache-line-size = <64>;
+			d-cache-sets = <128>;
+			i-cache-size = <0x8000>;
+			i-cache-line-size = <64>;
+			i-cache-sets = <256>;
+			next-level-cache = <&l2>;
+		};
+
+		cpu2: cpu@2 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x0 0x2>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0x80002fa0>;
+			d-cache-size = <0x8000>;
+			d-cache-line-size = <64>;
+			d-cache-sets = <128>;
+			i-cache-size = <0x8000>;
+			i-cache-line-size = <64>;
+			i-cache-sets = <256>;
+			next-level-cache = <&l2>;
+		};
+
+		cpu3: cpu@3 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x0 0x3>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0x80002fa0>;
+			d-cache-size = <0x8000>;
+			d-cache-line-size = <64>;
+			d-cache-sets = <128>;
+			i-cache-size = <0x8000>;
+			i-cache-line-size = <64>;
+			i-cache-sets = <256>;
+			next-level-cache = <&l2>;
+		};
+
+		l2: l2-cache0 {
+			compatible = "cache";
+			cache-size = <0x100000>;
+			cache-line-size = <64>;
+			cache-sets = <1024>;
+			cache-level = <2>;
+		};
+	};
+
+	timer: timer {
+		compatible = "arm,armv8-timer";
+		interrupt-parent = <&gic500>;
+		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_HIGH>,
+			   <GIC_PPI 14 IRQ_TYPE_LEVEL_HIGH>,
+			   <GIC_PPI 11 IRQ_TYPE_LEVEL_HIGH>,
+			   <GIC_PPI 10 IRQ_TYPE_LEVEL_HIGH>;
+		arm,cpu-registers-not-fw-configured;
+	};
+
+	clocks {
+		refclk: refclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <125000000>;
+		};
+		uartclk: uartclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <10000000>;
+		};
+		pclk: pclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <100000000>; /* 100MHz pclk */
+		};
+		sysclk: sysclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <200000000>; /* 200MHz sysclk */
+		};
+		spi_clk: spi_clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <400000000>;  /* 400MHz */
+		};
+		sp_dma_clk: sp_dma_clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <3125000>;  /* 3.125 MHz */
+		};
+		clk_mali: clk_mali {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <500000000>; /* 500MHz Clock half of CPU clock*/
+			clock-output-names = "clk_mali";
+		};
+		clk_pclk: clk_pclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <74250000>;
+			clock-output-names = "clk_pclk";
+		};
+		rtcclk: rtcclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <1>; /* 1Hz */
+		};
+		clk_xin: clk_xin {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <200000000>;
+			clock-output-names = "clk_xin";
+		};
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		interrupt-parent = <&gic500>;
+		ranges;
+
+		gic500: interrupt-controller@40400000 {
+			compatible = "arm,gic-v3";
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+			#interrupt-cells = <3>;
+			interrupt-controller;
+			#redistributor-regions = <1>;
+			reg = <0x00 0x40400000 0x00 0x10000>,
+				  <0x00 0x40500000 0x00 0xC0000>;
+			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		/* GPIO Controller banks 0 - 7 */
+		gpio0: gpio-controller@33000000 {
+			compatible = "axiado,ax3000-gpio";
+			clocks = <&pclk>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 183 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			reg = <0x00 0x33000000 0x00 0x100>;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		gpio1: gpio-controller@33080000 {
+			compatible = "axiado,ax3000-gpio";
+			clocks = <&pclk>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 184 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			reg = <0x00 0x33080000 0x00 0x100>;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		gpio2: gpio-controller@33100000 {
+			compatible = "axiado,ax3000-gpio";
+			clocks = <&pclk>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 185 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			reg = <0x00 0x33100000 0x00 0x100>;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		gpio3: gpio-controller@33180000 {
+			compatible = "axiado,ax3000-gpio";
+			clocks = <&pclk>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 186 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			reg = <0x00 0x33180000 0x00 0x100>;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		gpio4: gpio-controller@0x33200000 {
+			compatible = "axiado,ax3000-gpio";
+			clocks = <&pclk>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 187 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			reg = <0x00 0x33200000 0x00 0x100>;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		gpio5: gpio-controller@33280000 {
+			compatible = "axiado,ax3000-gpio";
+			clocks = <&pclk>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 188 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			reg = <0x00 0x33280000 0x00 0x100>;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		gpio6: gpio-controller@33300000 {
+			compatible = "axiado,ax3000-gpio";
+			clocks = <&pclk>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 189 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			reg = <0x00 0x33300000 0x00 0x100>;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		gpio7: gpio-controller@33380000 {
+			compatible = "axiado,ax3000-gpio";
+			clocks = <&pclk>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 190 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			reg = <0x00 0x33380000 0x00 0x100>;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		uart0: serial0@33020000 {
+			compatible = "cdns,uart-r1p12";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 112 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33020000 0x00 0x100>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&refclk &pclk>;
+			uart-clk = <10000000>;
+			status = "disabled";
+		};
+
+		uart1: serial1@330A0000 {
+			compatible = "cdns,uart-r1p12";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 113 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x330A0000 0x00 0x100>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&refclk &pclk>;
+			uart-clk = <10000000>;
+			status = "disabled";
+		};
+
+		uart2: serial2@33120000 {
+			compatible = "cdns,uart-r1p12";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 114 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33120000 0x00 0x100>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&refclk &pclk>;
+			uart-clk = <10000000>;
+			status = "disabled";
+		};
+
+		uart3: serial3@33020800 {
+			compatible = "cdns,uart-r1p12";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 170 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33020800 0x00 0x100>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&refclk &pclk>;
+			uart-clk = <10000000>;
+			status = "disabled";
+		};
+
+		uart4: serial4@331a0400 {
+			compatible = "cdns,uart-r1p12";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 208 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x331a0400 0x00 0x100>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&refclk &pclk>;
+			uart-clk = <10000000>;
+			status = "disabled";
+		};
+
+		uart5: serial5@33381D00 {
+			compatible = "cdns,uart-r1p12";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 209 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33381D00 0x00 0x100>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&refclk &pclk>;
+			uart-clk = <10000000>;
+			status = "disabled";
+		};
+
+		uart6: serial6@33381E00 {
+			compatible = "cdns,uart-r1p12";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 210 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33381E00 0x00 0x100>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&refclk &pclk>;
+			uart-clk = <10000000>;
+			status = "disabled";
+		};
+
+		uart7: serial7@33381F00 {
+			compatible = "cdns,uart-r1p12";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 211 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33381F00 0x00 0x100>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&refclk &pclk>;
+			uart-clk = <10000000>;
+			status = "disabled";
+		};
+
+		uart8: serial8@330C0000 {
+			compatible = "cdns,uart-r1p12";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 212 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x330C0000 0x00 0x100>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&refclk &pclk>;
+			uart-clk = <10000000>;
+			status = "disabled";
+		};
+
+		i2c0: i2c@33000400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 76 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33000400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c1: i2c@33000800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 77 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33000800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c2: i2c@33080400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33080400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c3: i2c@33080800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 79 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33080800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c4: i2c@33100400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33100400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c5: i2c@33100800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 81 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33100800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i3c6: i2c@33180400 {
+			compatible = "cdns,i3c-master";
+			clocks = <&pclk &sysclk>;
+			clock-names = "pclk", "sysclk";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 82 IRQ_TYPE_LEVEL_HIGH>;
+			i2c-scl-hz = <100000>;
+			i3c-scl-hz = <400000>;
+			reg = <0x00 0x33180400 0x00 0x400>;
+			#address-cells = <3>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i3c7: i2c@33180800 {
+			compatible = "cdns,i3c-master";
+			clocks = <&pclk &sysclk>;
+			clock-names = "pclk", "sysclk";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
+			i2c-scl-hz = <100000>;
+			i3c-scl-hz = <400000>;
+			reg = <0x00 0x33180800 0x00 0x400>;
+			#address-cells = <3>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i3c8: i2c@33200400 {
+			compatible = "cdns,i3c-master";
+			clocks = <&pclk &sysclk>;
+			clock-names = "pclk", "sysclk";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 84 IRQ_TYPE_LEVEL_HIGH>;
+			i2c-scl-hz = <100000>;
+			i3c-scl-hz = <400000>;
+			reg = <0x00 0x33200400 0x00 0x400>;
+			#address-cells = <3>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i3c9: i2c@33200800 {
+			compatible = "cdns,i3c-master";
+			clocks = <&pclk &sysclk>;
+			clock-names = "pclk", "sysclk";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 85 IRQ_TYPE_LEVEL_HIGH>;
+			i2c-scl-hz = <100000>;
+			i3c-scl-hz = <400000>;
+			reg = <0x00 0x33200800 0x00 0x400>;
+			#address-cells = <3>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c10: i2c@33280400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 86 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33280400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c11: i2c@33280800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 87 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33280800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i3c12: i2c@33300400 {
+			compatible = "cdns,i3c-master";
+			clocks = <&pclk &sysclk>;
+			clock-names = "pclk", "sysclk";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 88 IRQ_TYPE_LEVEL_HIGH>;
+			i2c-scl-hz = <100000>;
+			i3c-scl-hz = <400000>;
+			reg = <0x00 0x33300400 0x00 0x400>;
+			#address-cells = <3>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i3c13: i2c@33300800 {
+			compatible = "cdns,i3c-master";
+			clocks = <&pclk &sysclk>;
+			clock-names = "pclk", "sysclk";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 89 IRQ_TYPE_LEVEL_HIGH>;
+			i2c-scl-hz = <100000>;
+			i3c-scl-hz = <400000>;
+			reg = <0x00 0x33300800 0x00 0x400>;
+			#address-cells = <3>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c14: i2c@33380400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 90 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33380400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c15: i2c@33380800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 91 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33380800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c16: i2c@33120400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 92 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33120400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c17: i2c@33021400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 213 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33021400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c18: i2c@33021800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 214 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33021800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c19: i2c@330C0400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 215 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x330C0400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c20: i2c@330C0800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 216 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x330C0800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c21: i2c@330C0C00 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 217 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x330C0C00 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i3c22: i2c@331A0800 {
+			compatible = "cdns,i3c-master";
+			clocks = <&pclk &sysclk>;
+			clock-names = "pclk", "sysclk";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 218 IRQ_TYPE_LEVEL_HIGH>;
+			i2c-scl-hz = <100000>;
+			i3c-scl-hz = <400000>;
+			reg = <0x00 0x331A0800 0x00 0x400>;
+			#address-cells = <3>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c23: i2c@33302800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 219 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33302800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c24: i2c@33302C00 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 220 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33302C00 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c25: i2c@33303000 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 221 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33303000 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c26: i2c@33382000 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 222 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33382000 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c27: i2c@33382400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 223 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33382400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c28: i2c@33382800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 224 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33382800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c29: i2c@33382C00 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 225 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33382C00 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c30: i2c@33383000 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33383000 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c31: i2c@33383400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 227 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33383400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c32: i2c@33383800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 228 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33383800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c33: i2c@33282400 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 238 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33282400 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c34: i2c@33282800 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 239 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33282800 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c35: i2c@33282C00 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 240 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33282C00 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c36: i2c@33283000 {
+			compatible = "cdns,i2c-r1p14";
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 241 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33283000 0x00 0x400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		usb2_0: usb@41000000  {
+			compatible = "axiado,ax3000-gen2-xhci", "generic-xhci";
+			reg = <0x00 0x41000000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 19 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		usb2_1: usb@41100000 {
+			compatible = "axiado,ax3000-gen2-xhci", "generic-xhci";
+			reg = <0x00 0x41100000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 20 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		usb2_2: usb@41200000  {
+			compatible = "axiado,ax3000-udc";
+			reg = <0x00 0x41200000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		usb2_3: usb@41300000  {
+			compatible = "axiado,ax3000-udc";
+			reg = <0x00 0x41300000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 22 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		usb3_0: usb@41400000 {
+			compatible = "axiado,ax3000-gen3-xhci", "generic-xhci";
+			reg = <0x00 0x41400000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 17 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		usb3_1: usb@41500000 {
+			compatible = "axiado,ax3000-gen3-xhci", "generic-xhci";
+			reg = <0x00 0x41500000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+	  	pwm0: pwm@33000C00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 93 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33000c00 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm1: pwm@33001000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 94 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33001000 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm2: pwm@33080c00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 95 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33080c00 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm3: pwm@33081000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 96 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33081000 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm4: pwm@33100c00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 97 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33100c00 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm5: pwm@33101000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 98 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33101000 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm6: pwm@33180c00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 99 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33180c00 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm7: pwm@33181000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 100 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33181000 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm8: pwm@33200c00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 101 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33200c00 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm9: pwm@33201000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 102 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33201000 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm10: pwm@33280c00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 103 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33280c00 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm11: pwm@33281000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 104 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33281000 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm12: pwm@33300c00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 105 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33300c00 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm13: pwm@33301000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 106 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33301000 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm14: pwm@33380c00 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 107 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33380c00 0x00  0x100>;
+			status = "disabled";
+		};
+
+		pwm15: pwm@33381000 {
+			compatible = "axiado,ax3000-pwm";
+			#pwm-cells = <2>;
+			clocks = <&pclk &pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 108 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33381000 0x00  0x100>;
+			status = "disabled";
+		};
+
+		fan0: pwm-fan0 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 150 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33001400 0x00 0x400>;
+			pwms = <&pwm0 0 400>;
+			status = "disabled";
+		};
+
+		fan1: pwm-fan1 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 151 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33001800 0x00 0x400>;
+			pwms = <&pwm1 0 400>;
+			status = "disabled";
+		};
+
+		fan2: pwm-fan2 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 152 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33081400 0x00 0x400>;
+			pwms = <&pwm2 0 400>;
+			status = "disabled";
+		};
+
+		fan3: pwm-fan3 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 153 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33081800 0x00 0x400>;
+			pwms = <&pwm3 0 400>;
+			status = "disabled";
+		};
+
+		fan4: pwm-fan4 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 154 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33101400 0x00 0x400>;
+			pwms = <&pwm4 0 400>;
+			status = "disabled";
+		};
+
+		fan5: pwm-fan5 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 155 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33101800 0x00 0x400>;
+			pwms = <&pwm5 0 400>;
+			status = "disabled";
+		};
+
+		fan6: pwm-fan6 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 156 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33181400 0x00 0x400>;
+			pwms = <&pwm6 0 400>;
+			status = "disabled";
+		};
+
+		fan7: pwm-fan7 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 157 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33181800 0x00 0x400>;
+			pwms = <&pwm7 0 400>;
+			status = "disabled";
+		};
+
+		fan8: pwm-fan8 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 158 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33201400 0x00 0x400>;
+			pwms = <&pwm8 0 400>;
+			status = "disabled";
+		};
+
+		fan9: pwm-fan9 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 159 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33201800 0x00 0x400>;
+			pwms = <&pwm9 0 400>;
+			status = "disabled";
+		};
+
+		fan10: pwm-fan10 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 160 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33281400 0x00 0x400>;
+			pwms = <&pwm10 0 400>;
+			status = "disabled";
+		};
+
+		fan11: pwm-fan11 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 161 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33281800 0x00 0x400>;
+			pwms = <&pwm11 0 400>;
+			status = "disabled";
+		};
+
+		fan12: pwm-fan12 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 162 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33301400 0x00 0x400>;
+			pwms = <&pwm12 0 400>;
+			status = "disabled";
+		};
+
+		fan13: pwm-fan13 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 163 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33301800 0x00 0x400>;
+			pwms = <&pwm13 0 400>;
+			status = "disabled";
+		};
+
+		fan14: pwm-fan14 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 164 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33381400 0x00 0x400>;
+			pwms = <&pwm14 0 400>;
+			status = "disabled";
+		};
+
+		fan15: pwm-fan15 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 165 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33381800 0x00 0x400>;
+			pwms = <&pwm15 0 400>;
+			status = "disabled";
+		};
+
+		rtc0: rtc@33282000 {
+			compatible = "cdns,rtc-r109v3";
+			reg = <0x00 0x33282000 0x00 0x100>;
+			clock-names = "pclk", "ref_clk";
+			clocks = <&pclk &rtcclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <0 109 4>;
+			status = "disabled";
+		};
+
+		saradc:saradc@331A0000 {
+			compatible = "axiado,ax3000-saradc";
+			reg = <0x00 0x331a0000 0x00 0x400>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 166 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&pclk &pclk>;
+			clock-names = "refclk", "refclk";
+			#io-channel-cells = <1>;
+			status = "disabled";
+		};
+
+		spi0: spi@33010000 {
+			compatible = "snps,dwc-ssi-1.01a";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0x0 0x33010000 0x0 0x10000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 115 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&spi_clk>;
+			num-cs = <2>;
+			reg-io-width = <4>;
+			status = "disabled";
+		};
+
+		spi1: spi@33090000 {
+			compatible = "snps,dwc-ssi-1.01a";
+			reg = <0x0 0x33090000 0x0 0x10000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 116 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&spi_clk>;
+			num-cs = <1>;
+			reg-io-width = <4>;
+			status = "disabled";
+		};
+
+		spi2: spi@333c0000 {
+			compatible = "snps,dwc-ssi-1.01a";
+			reg = <0x0 0x333c0000 0x0 0x10000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 117 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&spi_clk>;
+			num-cs = <1>;
+			reg-io-width = <4>;
+			status = "disabled";
+		};
+
+		spi3: spi@330e0000 {
+			compatible = "snps,dwc-ssi-1.01a";
+			reg = <0x0 0x330e0000 0x0 0x10000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 118 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&spi_clk>;
+			num-cs = <1>;
+			reg-io-width = <4>;
+			status = "disabled";
+		};
+
+		spi5: spi@33390000 {
+			compatible = "snps,dwc-ssi-1.01a";
+			reg = <0x0 0x33390000 0x0 0x10000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 119 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&spi_clk>;
+			num-cs = <2>;
+			reg-io-width = <4>;
+			status = "disabled";
+		};
+
+		spi6: spi@333a0000 {
+			compatible = "snps,dwc-ssi-1.01a";
+			reg = <0x0 0x333a0000 0x0 0x10000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 120 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&spi_clk>;
+			num-cs = <1>;
+			reg-io-width = <4>;
+			status = "disabled";
+		};
+
+		sgpio0: sgpio@33201c00 {
+			compatible = "axiado,sgpio";
+			reg = <0x0 0x33201c00 0x00 0x400>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 125 IRQ_TYPE_LEVEL_HIGH>;
+			design-variant = <512>;
+			/* Supports maximum of 128 pins */
+			ngpios = <128>;
+			/* SGPIO Clock Frequency 12 MHz */
+			bus-frequency = <12000000>;
+			apb-frequency = <100000000>;
+			dout-init = <0x00000000 0x00000000 0x00000000 0x00000000>;
+			status = "disabled";
+		};
+
+		emmc_phy: emmc-phy@33301c00 {
+			compatible = "axiado,ax3000-emmc-phy";
+			reg = <0x00 0x33301c00 0x00 0x100>;
+			#phy-cells = <0>;
+			status = "disabled";
+		};
+
+		sdhci0: mmc0@46000000 {
+			compatible = "axiado,ax3000-sdhci-5.1-emmc", "arasan,sdhci-5.1";
+			reg = <0x0 0x46000000 0x00 0x1000>;
+			clock-names = "clk_xin", "clk_ahb";
+			clocks = <&clk_xin &clk_xin>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
+			bus-width = <8>;
+			phys = <&emmc_phy>;
+			phy-names = "phy_arasan";
+			status = "disabled";
+		};
+
+	};
+};
