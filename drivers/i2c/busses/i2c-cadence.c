@@ -258,7 +258,7 @@ static void cdns_i2c_slave_rcv_data(struct cdns_i2c *id)
 	/* Prepare backend for data reception */
 	if (id->slave_state == CDNS_I2C_SLAVE_STATE_IDLE) {
 		id->slave_state = CDNS_I2C_SLAVE_STATE_RECV;
-		i2c_slave_event(id->slave, I2C_SLAVE_WRITE_REQUESTED, NULL);
+		i2c_slave_event(id->slave, I2C_SLAVE_WRITE_REQUESTED, &data);
 	}
 
 	/* Fetch number of bytes to receive */
@@ -1314,7 +1314,7 @@ int cdns_i2c_probe_common(struct platform_device *pdev, struct cdns_i2c *id)
 
 	ret = of_property_read_u32(pdev->dev.of_node, "clock-frequency",
 			&id->i2c_clk);
-	if (ret || (id->i2c_clk > I2C_MAX_FAST_MODE_FREQ))
+	if (ret || (id->i2c_clk > I2C_MAX_FAST_MODE_PLUS_FREQ))
 		id->i2c_clk = I2C_MAX_STANDARD_MODE_FREQ;
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
