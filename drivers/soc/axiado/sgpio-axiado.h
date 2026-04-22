@@ -99,6 +99,10 @@
 #define MAX_OFFSET_REG		16
 #define MAX_SLICE_COUNT		4
 
+#define NUM_WORDS(bits)   (((bits) + 31) / 32)
+#define START_OFFSET(bits)   (16 - NUM_WORDS(bits))
+#define END_OFFSET(bits)     (15)
+
 struct ax3000_sgpio {
 	uint32_t preset_value;
 	uint32_t count_value;
