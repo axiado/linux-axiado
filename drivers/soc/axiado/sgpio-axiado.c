@@ -96,16 +96,22 @@ static irqreturn_t sgpio_irq_handler(int irq, void *arg)
 	struct ax3000_sgpio *sgpio = (struct ax3000_sgpio *)arg;
 	u32 status, new_value;
 	u32 changed_value;
-	int i, bit;
+	int i, bit, reg_ptr;
 
 	/* Read-on-clear (ACK) parent cause */
 	status = sgpio_reg_read(sgpio, sgpio->regs->slice_status);
 	status >>= STATUS_SHIFT;
 
-	for (i = 0; i < sgpio->max_offset_regs; i++) {
-		if (IS_BIT_SET(status, i)) {
+	if (sgpio->max_offset_regs == MAX_OFFSET_REG)
+		reg_ptr = START_OFFSET(sgpio->ngpios);
+	else
+		reg_ptr = 0;
+
+	for (i = 0; i < NUM_WORDS(sgpio->ngpios); i++, reg_ptr++) {
+		if (IS_BIT_SET(status, reg_ptr)) {
+
 			new_value = sgpio_reg_read(sgpio,
-					sgpio->regs->slice_din_ss + (i * 4));
+					sgpio->regs->slice_din_ss + (reg_ptr * 4));
 
 			changed_value = slice[3].reg_ss[i] ^ new_value;
 			slice[3].reg_ss[i] = new_value;
@@ -148,7 +154,7 @@ static void sgpio_hw_init(struct ax3000_sgpio *sgpio)
 	position = GET_POS((sgpio->ngpios-1));
 
 	sgpio_reg_write(sgpio, sgpio->regs->slice_mux_1,
-			0x304); /* slice_mux_config */
+			0x30c); /* slice_mux_config */
 
 	for (i = 0; i < bank; i++) {
 		sgpio_reg_write(sgpio, sgpio->regs->slice_ld + (i * 4),
@@ -178,7 +184,7 @@ static void sgpio_hw_init(struct ax3000_sgpio *sgpio)
 	position = GET_POS((sgpio->ngpios));
 
 	sgpio_reg_write(sgpio, sgpio->regs->slice_mux_2,
-			0x304); //slice_mux_config
+			0x30c); //slice_mux_config
 
 	for (i = 0; i < bank; i++) {
 		sgpio_reg_write(sgpio, sgpio->regs->slice_dout + (i * 4),
@@ -213,7 +219,7 @@ static void sgpio_hw_init(struct ax3000_sgpio *sgpio)
 
 	/* Slice E4, Output Enable for respective pins */
 	sgpio_reg_write(sgpio, sgpio->regs->slice_mux_4,
-			0x104); /* slice_mux_config */
+			0x10c); /* slice_mux_config */
 	sgpio_reg_write(sgpio, sgpio->regs->slice_oe,
 			0xffffffff); /* shift reg */
 	sgpio_reg_write(sgpio, sgpio->regs->slice_oe_ss,
