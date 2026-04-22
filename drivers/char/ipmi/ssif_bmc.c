@@ -57,6 +57,8 @@
 #define I2C_SLAVE_ADDR_REG 0x40
 #endif
 
+extern void cdns_i2c_slave_set_busy(struct i2c_adapter *adap, bool busy);
+
 struct ssif_part_buffer {
 	u8 address;
 	u8 smbus_cmd;
@@ -335,6 +337,7 @@ static ssize_t ssif_bmc_write(struct file *file, const char __user *buf, size_t 
 
 	del_timer_sync(&ssif_bmc->response_timer);
 	ssif_bmc->busy = false;
+	cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, false);
 	if (!IS_ERR(ssif_bmc->alert)) {
 		//if gpio is already asserted toggle it
 		if (gpiod_get_value_cansleep(ssif_bmc->alert))
@@ -433,6 +436,7 @@ static void handle_request(struct ssif_bmc_ctx *ssif_bmc)
 		}
 
 		ssif_bmc->busy = true;
+		cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, true);
 		mod_timer(&ssif_bmc->response_timer, jiffies + msecs_to_jiffies(ssif_bmc->response_timeout));
 		memset(&ssif_bmc->response, 0, sizeof(struct ipmi_ssif_msg_header));
 		ssif_bmc->msg_time = ktime_get();
@@ -758,6 +762,7 @@ static void on_read_requested_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 	if (ssif_bmc->part_buf.length > 0)
 		*val = ssif_bmc->part_buf.length;
 
+	cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, false);
 	if (!IS_ERR(ssif_bmc->alert))
 		schedule_work(&ssif_bmc->alert_work);
 }
@@ -917,6 +922,7 @@ static void retry_timeout(struct timer_list *t)
 	struct ssif_bmc_ctx *ssif_bmc = from_timer(ssif_bmc, t, response_timer);
 
 	dev_warn(&ssif_bmc->client->dev, "Userspace did not respond in time. Force enable i2c target\n");
+	cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, false);
 	ssif_bmc->busy = false;
 }
 

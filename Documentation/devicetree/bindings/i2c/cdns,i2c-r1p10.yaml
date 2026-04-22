@@ -15,9 +15,9 @@ allOf:
 properties:
   compatible:
     enum:
+      - axiado,ax3000-i2c
       - cdns,i2c-r1p10 # cadence i2c controller version 1.0
       - cdns,i2c-r1p14 # cadence i2c controller version 1.4
-      - cdns,i2c-r1p14-regmap # Cadence I2C via regmap
 
   reg:
     maxItems: 1
