@@ -53,19 +53,35 @@ properties:
       - description: MAC interface 2
       - description: MAC interface 3
       - description: MAC interface 4
+      - description: EIP Ring interface 4
+      - description: EIP Ring interface 5
+      - description: EIP Ring interface 6
+      - description: EIP Ring interface 7
+      - description: EIP Ring interface 8
+      - description: EIP Ring interface 9
+      - description: EIP Ring interface 10
+      - description: EIP Ring interface 11
 
   interrupt-names:
     items:
       - const: eip197
-      - const: ring0
-      - const: ring1
-      - const: ring2
-      - const: ring3
-      - const: mac0
-      - const: mac1
-      - const: mac2
-      - const: mac3
-      - const: mac4
+      - const: eip_ring0
+      - const: eip_ring1
+      - const: eip_ring2
+      - const: eip_ring3
+      - const: xgmii
+      - const: gmii0
+      - const: gmii1
+      - const: gmii2
+      - const: gmii3
+      - const: eip_ring4
+      - const: eip_ring5
+      - const: eip_ring6
+      - const: eip_ring7
+      - const: eip_ring8
+      - const: eip_ring9
+      - const: eip_ring10
+      - const: eip_ring11
 
   clocks:
     maxItems: 1
