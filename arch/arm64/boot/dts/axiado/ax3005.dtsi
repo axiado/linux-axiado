@@ -87,7 +87,17 @@
 		};
 	};
 
-	timer: timer {
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		rofs_memory: ramrofs@80B00000 {
+                        reg = <0x00 0x80B00000 0x00 0x06400000>; /*MTD 100MB*/
+                        no-map;
+                };
+	};
+	
+	timer:timer {
 		compatible = "arm,armv8-timer";
 		interrupt-parent = <&gic500>;
 		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_HIGH>,
