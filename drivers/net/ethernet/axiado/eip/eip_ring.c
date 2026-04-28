@@ -487,6 +487,12 @@ int eip_rx_clean_rdr(struct eip_ring_interface *eip_ring)
 				 .token_desc_error_code);
 			net_stats->rx_errors++;
 		} else {
+#ifdef DEBUG
+			LOG_DEBG("[Ring-%d appid-%d] Received pkt data: ", rid, app_id);
+			print_hex_dump(KERN_DEBUG, "", DUMP_PREFIX_OFFSET, 16, 1,
+					(void *)packet_buff.host_address.p,
+					res[i].dst_pkt_byte_count, true);
+#endif
 			/* TODO - below is temp fix for adding DTL rule for ingress pkt
 			 * at ring-0. Ideally DTL rule should be added after iptables-set-mark.
 			 */

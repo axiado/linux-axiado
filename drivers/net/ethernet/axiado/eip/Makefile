@@ -7,9 +7,15 @@ HOST_HW_PLATFORM := fpga_vcu118_pci
 FW_EIP207_API_DIR := firmware/fw3.3.1/safexcel-firmware/eip197/firmware/production_firmware/api
 EIP197_BUS_TYPE := of
 EIP197_BUS_VERSION := AXI4
+ifndef CONFIG_ARCH_AX3005
 EIP197_NOF_RINGS := 4
 EIP197_NOF_RDR_PER_RING := 65
 EIP197_NOF_CDR_PER_RING := 65
+else
+EIP197_NOF_RINGS := 12
+EIP197_NOF_RDR_PER_RING := 33
+EIP197_NOF_CDR_PER_RING := 33
+endif
 
 ccflags-y += \
   -DDRIVER_64BIT_DEVICE \

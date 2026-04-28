@@ -37,6 +37,21 @@ static void set_cd_app_id(u32 *cd_word, u32 app_id)
 	*cd_word = val;
 }
 
+void shim_write_word_cd(u32 base_offset, u8 word, u32 val)
+{
+	u8 word_offset;
+
+#ifndef CONFIG_ARCH_AX3005
+	word_offset = word * 4;
+#else
+	shim_write_word(base_offset, word);
+	word_offset = 4;
+#endif
+	shim_write_word(base_offset + word_offset, val);
+
+	return;
+}
+
 /**
  * mac_cd_config - Configure Command Descriptor for a MAC (Ingress).
  * @dev: Device structure for logging.
@@ -61,25 +76,25 @@ static enum AX_SHIM_STATUS mac_cd_config(struct device *dev, int mac_idx)
 	/* WORD-0: IP_pkt_length[15:0]= 0; AP[16] = 0 (ARC4 pre-fetch ctrl);
 	 * options[29:17] = 0x1800; type[31:30] = 0x3(Extended cmd token)
 	 */
-	shim_write_word(cd_tkn_base + offset + 0, CMD_TOKEN_WORD_0_VAL);
+	shim_write_word_cd(cd_tkn_base + offset, 0, CMD_TOKEN_WORD_0_VAL);
 
 	/* WORD-1: AAD_length[7:0] = 0; App_id[15:9] = mac_idx or 10G ID */
 	token_val = CMD_TOKEN_WORD_1_VAL;
 	/* If mac_idx is 0 (10G), use MAC_10G_APPID (5), else use mac_idx */
 	appid = (!mac_idx) ? MAC_10G_APPID : mac_idx;
 	set_cd_app_id(&token_val, appid);
-	shim_write_word(cd_tkn_base + offset + 4, token_val);
+	shim_write_word_cd(cd_tkn_base + offset, 1, token_val);
 
 	/* WORD-2: For DTL or Flow lookup : 0xFFFFFFFC */
-	shim_write_word(cd_tkn_base + offset + 8, CMD_TOKEN_WORD_2_VAL);
+	shim_write_word_cd(cd_tkn_base + offset, 2, CMD_TOKEN_WORD_2_VAL);
 	/* WORD-3: For DTL or Flow lookup : 0xFFFFFFFF*/
-	shim_write_word(cd_tkn_base + offset + 12, CMD_TOKEN_WORD_3_VAL);
+	shim_write_word_cd(cd_tkn_base + offset, 3, CMD_TOKEN_WORD_3_VAL);
 
 	/* WORD-4: user_def[15:0] = 0; strip_padding[22] = 0;
 	 * Allow_padding[23] = 1; HW_service[29:24] = 0x2(LIP/IIP);
 	 * flow_lookup[31] = 0;
 	 */
-	shim_write_word(cd_tkn_base + offset + 16, CMD_TOKEN_WORD_4_VAL);
+	shim_write_word_cd(cd_tkn_base + offset, 4, CMD_TOKEN_WORD_4_VAL);
 
 #if VLAN_SUPPORT_ENABLED
 	/* Refer Security-IP-197_FW3.3_Firmware-Reference-Manual_RevE
@@ -89,20 +104,32 @@ static enum AX_SHIM_STATUS mac_cd_config(struct device *dev, int mac_idx)
 	 * Ipv4ChkSum[25] = 0; L4ChkSum[26] = 0; parseEther[27] = 1;
 	 * KeepOuter[28] = 0
 	 */
-	shim_write_word(cd_tkn_base + offset + 20, 0x08000000);
+	shim_write_word_cd(cd_tkn_base + offset, 5, 0x08000000);
 #else
 	/* WORD-5:  offset[15:8] = 0xE; next_header[23:16] = 0; FL[24] = 0;
 	 * Ipv4ChkSum[25] = 0; L4ChkSum[26] = 0; parseEther[27] = 0;
 	 * KeepOuter[28] = 0
 	 */
-	shim_write_word(cd_tkn_base + offset + 20, CMD_TOKEN_WORD_5_VAL);
+	shim_write_word_cd(cd_tkn_base + offset, 5, CMD_TOKEN_WORD_5_VAL);
 #endif
 
 	/* WORD-6: Metadata[31:0] = 0 */
-	shim_write_word(cd_tkn_base + offset + 24, CMD_TOKEN_WORD_6_VAL);
+	shim_write_word_cd(cd_tkn_base + offset, 6, CMD_TOKEN_WORD_6_VAL);
 
 	/* WORD-7: Metadata[31:0] = 0 */
-	shim_write_word(cd_tkn_base + offset + 28, CMD_TOKEN_WORD_7_VAL);
+	shim_write_word_cd(cd_tkn_base + offset, 7, CMD_TOKEN_WORD_7_VAL);
+
+	/* WORD-8: Metadata[31:0] = 0 */
+	shim_write_word_cd(cd_tkn_base + offset, 8, CMD_TOKEN_WORD_8_VAL);
+
+	/* WORD-9: Metadata[31:0] = 0 */
+	shim_write_word_cd(cd_tkn_base + offset, 9, CMD_TOKEN_WORD_9_VAL);
+
+	/* WORD-10: Metadata[31:0] = 0 */
+	shim_write_word_cd(cd_tkn_base + offset, 10, CMD_TOKEN_WORD_10_VAL);
+
+	/* WORD-11: Metadata[31:0] = 0 */
+	shim_write_word_cd(cd_tkn_base + offset, 11, CMD_TOKEN_WORD_11_VAL);
 
 	return SHIM_STATUS_SUCCESS;
 }

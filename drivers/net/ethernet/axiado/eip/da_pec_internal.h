@@ -95,7 +95,11 @@
 
 /* EIP-max ring - defined in shim_eip_common.h */
 #ifndef RING_INTERFACE_CNT
+#ifndef CONFIG_ARCH_AX3005
 #define RING_INTERFACE_CNT 4
+#else
+#define RING_INTERFACE_CNT 12
+#endif
 #endif
 
 #define INVALID_INTERFACE_ID 0xFF
@@ -110,7 +114,11 @@
 
 #ifdef ENABLE_REJECTED_FLOW_TO_R3
 /* Using the EIP-ring 3 for accepting rejected flow pkts. */
+#ifndef CONFIG_ARCH_AX3005
 #define REJECTED_FLOW_RULE_RING_ID 3
+#else
+#define REJECTED_FLOW_RULE_RING_ID 11
+#endif
 #endif /* ENABLE_REJECTED_FLOW_TO_R3 */
 
 /* Scan DTL-lookup table periodically and delete the expired rules. */
@@ -120,7 +128,11 @@
 
 #ifdef CONFIG_EIP_IPSEC_OFFLOAD
 #ifndef REJECTED_FLOW_RULE_RING_ID
+#ifndef CONFIG_ARCH_AX3005
 #define IPSEC_LOOKASIDE_INTERFACE 3
+#else
+#define IPSEC_LOOKASIDE_INTERFACE 11
+#endif
 #define INTERFACE_ID IPSEC_LOOKASIDE_INTERFACE
 #else
 #define IPSEC_LOOKASIDE_INTERFACE REJECTED_FLOW_RULE_RING_ID

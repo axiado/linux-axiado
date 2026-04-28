@@ -193,9 +193,11 @@ int interrupt_init(struct eip_ring_interface *eip_ring, struct net_device *ndev,
 		return -ENODEV;
 	}
 
+	snprintf(eip_ring->name, EIP_IRQ_NAME_LEN, "eip_ring%u", eip_ring->rid);
+
 	pdev = to_platform_device(dev);
 	/* Ring IRQs start at index 1 in HCP device (index 0 is EIP-197 crypto) */
-	irq = platform_get_irq(pdev, eip_ring->rid + 1);
+	irq = platform_get_irq_byname(pdev, eip_ring->name);
 
 	if (irq < 0) {
 		LOG_CRIT("Failed to get IRQ for ring %u: %d\n", eip_ring->rid,
@@ -204,8 +206,6 @@ int interrupt_init(struct eip_ring_interface *eip_ring, struct net_device *ndev,
 	}
 
 	eip_ring->irq = irq;
-	snprintf(eip_ring->name, EIP_IRQ_NAME_LEN, "eip_ring-%u",
-		 eip_ring->rid);
 	//TODO: handle IPSEC_LOOKASIDE_INTERFACE
 	if (eip_ring->rid == REJECTED_FLOW_RULE_RING_ID) {
 		tasklet_setup(&eip_ring->rdr_handler.tasklet_ring,

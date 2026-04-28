@@ -135,8 +135,13 @@ typedef struct
 #define FIRMWARE_EIP207_OPUE_NAME "firmware_eip207_opue.bin"
 #define FIRMWARE_EIP207_OFPP_NAME "firmware_eip207_ofpp.bin"
 #define FIRMWARE_EIP207_VERSION_MAJOR 3
+#ifndef CONFIG_ARCH_AX3005
 #define FIRMWARE_EIP207_VERSION_MINOR 3
 #define FIRMWARE_EIP207_VERSION_PATCH 1
+#else
+#define FIRMWARE_EIP207_VERSION_MINOR 5
+#define FIRMWARE_EIP207_VERSION_PATCH 0
+#endif
 
 
 /*----------------------------------------------------------------------------

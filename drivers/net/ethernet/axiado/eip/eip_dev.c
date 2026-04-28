@@ -34,8 +34,11 @@
 #include "shim_eip_common.h"
 #include "shim_platform.h"
 
-#define RXAUI_PHY_RESET_MAX 20
+#define PHY_RESET_MAX 20
 #define PHY_RESET_DELAY 200
+#define MII_MARVELL_COPPER_PAGE 0x00
+#define MII_MARVELL_FIBER_PAGE 0x01
+#define MARVELL_PHY_ID_88E1510 0x01410dd0
 
 static struct eip_public *eip_pub_glb;
 
@@ -237,50 +240,82 @@ static void eip_eth_link_updown(struct net_device *netdev, bool updown)
 {
 	struct eip_priv *priv = NULL;
 	struct eip_public *eip_pub = NULL;
+	struct phy_device *phydev = NULL;
 	int mac_idx;
-	static u8 rx_loc_fault_retry;
+	static u8 phy_reset_retry[MAX_MAC_CNT] = { 0 };
+	bool phy_retry = false;
 
 	priv = netdev_priv(netdev);
 	if (updown == priv->link)
 		return;
 
+	phydev = netdev->phydev;
 	mac_idx = priv->app_id == NDEV_APP_ID_MAC0 ? 0 : priv->app_id;
 	priv->link = updown;
 	if (priv->link) {
-		if (!netdev->phydev) {
+		if (!phydev) {
 			netif_carrier_on(netdev);
 			/*Assume non-phy netdev always 1Gbps/FD with flow control off*/
 			netdev_info(netdev,
 				    "%s: Link is Up - 1Gbps/Full - flow control off\n",
 				netdev_name(netdev));
 		} else {
-			if (!mac_idx) {
-				/* RXAUI may have RX_LOC_FAULT, retry phy reset */
-				if (is_rx_local_fault(mac_idx)) {
-					LOG_CRIT("%s: rx loc fault error, phy-reset retry: %u\n",
-						 netdev_name(netdev),
-						rx_loc_fault_retry + 1);
-					if (rx_loc_fault_retry ==
-					    RXAUI_PHY_RESET_MAX) {
-						LOG_CRIT("Error max reset retry reached\n");
-						rx_loc_fault_retry = 0;
-					} else {
+			if (mac_idx) {
+				/* check for autonegcomplete for Marvell COPPER/FIBER.
+				 * Marvell Phy is requiring autonegcomplete on both
+				 * Copper & Fiber mode for Tx/Rx to work */
+				if (phy_id_compare(MARVELL_PHY_ID_88E1510, phydev->phy_id,
+							phydev->drv->phy_id_mask)) {
+					phy_retry =
+						!(phy_read_paged(phydev,
+									MII_MARVELL_COPPER_PAGE,
+									MII_BMSR) &
+								BMSR_ANEGCOMPLETE) ||
+						!(phy_read_paged(phydev,
+									MII_MARVELL_FIBER_PAGE,
+									MII_BMSR) &
+								BMSR_ANEGCOMPLETE);
+				}
+			} else {
+				phy_retry = is_rx_local_fault(mac_idx);
+			}
+			if (phy_retry) {
+				LOG_CRIT(
+					"%s: PHY-Quirks - phy-reset retry: %u\n",
+					netdev_name(netdev),
+					phy_reset_retry[mac_idx] + 1);
+				if (phy_reset_retry[mac_idx] == PHY_RESET_MAX) {
+					LOG_CRIT(
+						"Error max reset retry reached %d\n",
+						PHY_RESET_MAX);
+					phy_reset_retry[mac_idx] = 0;
+				} else {
+					if (!mac_idx) {
 						eip_pub = priv->eip_pub;
-						rx_loc_fault_retry++;
 						/* schedule phy-reset worker thread */
 						schedule_work(&eip_pub->rxaui_phy_reset);
+					} else {
+						/* soft reset the Port */
+						shim_mac_soft_reset(mac_idx);
+						/* soft reset phy */
+						if (genphy_soft_reset(
+							    phydev) <
+						    0) {
+							pr_crit("Phy soft reset failed\n");
+						}
 					}
+					phy_reset_retry[mac_idx]++;
 					netif_carrier_off(netdev);
 					goto end;
-				} else {
-					rx_loc_fault_retry = 0;
 				}
+			} else {
+				phy_reset_retry[mac_idx] = 0;
 			}
 		}
 		netif_start_queue(netdev);
 	} else {
 		netif_stop_queue(netdev);
-		if (!netdev->phydev) {
+		if (!phydev) {
 			netif_carrier_off(netdev);
 			netdev_info(netdev, "%s: Link is Down\n",
 				    netdev_name(netdev));
