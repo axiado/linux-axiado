@@ -31,7 +31,11 @@ struct device;
 #define MAC_10G_APPID 5
 
 /* EIP-197 ring interfaces (used by both HCP and EIP subsystems) */
+#ifndef CONFIG_ARCH_AX3005
 #define RING_INTERFACE_CNT 4
+#else
+#define RING_INTERFACE_CNT 12
+#endif
 
 /* Base offset for MAC registers (relative to SHIM base) */
 #define MAC_BASE_OFFSET 0x400

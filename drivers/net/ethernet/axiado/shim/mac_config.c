@@ -162,6 +162,7 @@ static void sgmii_fast_sim(struct device *dev, int mac_idx)
 	if (mac_idx < 1 || mac_idx >= MAX_MAC_CNT)
 		return;
 
+#ifndef CONFIG_ARCH_AX3005
 	/* SGMII PHY tuning sequence required for link stability on this platform. */
 	shim_write_phy_word(sgmii_base + 0x0dd4, 0x00);
 	shim_write_phy_word(sgmii_base + 0x070c, 0x00800000);
@@ -205,6 +206,22 @@ static void sgmii_fast_sim(struct device *dev, int mac_idx)
 	shim_write_phy_word(sgmii_base + 0x1958, 0x00);
 	shim_write_phy_word(sgmii_base + 0x195c, 0x7d);
 	shim_write_phy_word(sgmii_base + 0x1800, 0x000d);
+#else
+	shim_write_phy_word(sgmii_base + ((0x04 << 10) + (0x24 << 2)),
+			    0x23810c81);
+	shim_write_phy_word(sgmii_base + ((0x03 << 10) + (0x75 << 2)),
+			    0x00000000);
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x24 << 2)),
+			    0x00f08098);
+	shim_write_phy_word(sgmii_base + ((0x6 << 10) + (0x55 << 2)),
+			    0x00000000);
+	shim_write_phy_word(sgmii_base + ((0x6 << 10) + (0x56 << 2)),
+			    0x00000000);
+	shim_write_phy_word(sgmii_base + ((0x6 << 10) + (0x57 << 2)),
+			    0x0000007e);
+	shim_write_phy_word(sgmii_base + ((0x6 << 10) + (0x00 << 2)),
+			    0x0000000d);
+#endif
 }
 
 /**
@@ -228,7 +245,7 @@ static enum AX_SHIM_STATUS mac_init_1g(struct device *dev, int mac_idx)
 	/* Configure MAC Command Config,Enable TX, RX, Padding */
 	shim_write_word(mac_base + R_COMMAND_CONFIG,
 			MAC_CC_NULL | MAC_CC_TX_ENA | MAC_CC_RX_ENA |
-				MAC_CC_TX_PAD_EN);
+				MAC_CC_TX_PAD_EN | MAC_CC_CRC_FWD);
 
 	/* Set Max Frame Length */
 	shim_write_word(mac_base + R_FRM_LENGTH, MAC_1G_R_FRM_LENGTH_VAL);
@@ -452,6 +469,56 @@ bool shim_fifo_reset(u8 mac_idx)
 	return true;
 }
 EXPORT_SYMBOL_GPL(shim_fifo_reset);
+
+/**
+ * shim_mac_soft_reset - Soft reset the particular MAC.
+ */
+void shim_mac_soft_reset(u8 mac_idx)
+{
+	u32 port_ctrl = REG_XGE_PORT_CTRL + (mac_idx * 4);
+	u32 mac_base = MAC_BASE_OFFSET + (mac_idx * MAC_CONFIG_BYTE_CNT);
+	u32 val;
+
+	pr_info("Port Soft Reset MAC-%u\n", mac_idx);
+
+	val = shim_read_word(port_ctrl);
+
+	/* RXAUI/SGMII RESET - reset */
+	val &= ~(BIT(BIT_PHY_SOFT_RESET));
+	shim_write_word(port_ctrl, val);
+	udelay(SHIM_RESET_RETRY_DELAY);
+
+	/* RXAUI/SGMII RESET - set */
+	val |= (BIT(BIT_PHY_SOFT_RESET));
+	shim_write_word(port_ctrl, val);
+	udelay(SHIM_RESET_RETRY_DELAY);
+
+	/* RXAUI/SGMII RESET - reset */
+	val &= ~(BIT(BIT_PHY_SOFT_RESET));
+	shim_write_word(port_ctrl, val);
+	/* delay for reset to propagate */
+	udelay(PHY_INIT_DELAY_US);
+
+	/* disable TX/RX */
+	val = shim_read_word(mac_base + R_COMMAND_CONFIG);
+	val &= ~(MAC_CC_TX_ENA);
+	val &= ~(MAC_CC_RX_ENA);
+	shim_write_word(mac_base + R_COMMAND_CONFIG, val);
+
+	/* MAC SW Reset */
+	val |= MAC_CC_SW_RESET;
+	shim_write_word(mac_base + R_COMMAND_CONFIG, val);
+	udelay(PHY_INIT_DELAY_US);
+
+	/* Reset Tx/Rx */
+	shim_fifo_reset(mac_idx);
+
+	/* Enable Tx/Rx */
+	val &= ~(MAC_CC_SW_RESET);
+	val |= MAC_CC_TX_ENA | MAC_CC_RX_ENA;
+	shim_write_word(mac_base + R_COMMAND_CONFIG, val);
+}
+EXPORT_SYMBOL_GPL(shim_mac_soft_reset);
 
 /**
  * shim_fifo_reset_all - Reset FIFOs for all enabled MACs.

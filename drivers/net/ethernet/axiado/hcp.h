@@ -112,6 +112,12 @@ struct hcp_device {
 int shim_subsystem_init(struct hcp_device *hcp);
 
 /**
+ * shim_mac_soft_reset - Soft reset the particular MAC
+ * @mac_idx: MAC index for reset
+ */
+void shim_mac_soft_reset(u8 mac_idx);
+
+/**
  * shim_subsystem_exit - Cleanup SHIM subsystem
  * @hcp: HCP device structure
  */

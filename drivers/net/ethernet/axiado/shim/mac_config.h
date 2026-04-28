@@ -208,6 +208,10 @@ void mmd_write(u32 port_no, u32 mmd, u32 addr, u32 value);
 #define BIT_TX_EMPTY 6
 #define BIT_RX_EMPTY 2
 
+/* Port Control Register */
+#define REG_XGE_PORT_CTRL 0x0000
+#define BIT_PHY_SOFT_RESET 4
+
 #define REG_XGE_SHIM_RX_PKTS 0x0060
 
 #define SHIM_RESET_RETRY_MAX 10

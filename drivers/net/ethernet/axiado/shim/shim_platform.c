@@ -476,7 +476,7 @@ static int shim_register_mac_interrupts(struct hcp_device *hcp,
 {
 	struct device *dev = hcp->dev;
 	u32 mac_idx;
-	int ret;
+	int ret, irq;
 
 	for (mac_idx = 0; mac_idx < MAX_MAC_CNT; mac_idx++) {
 		if (!shim->mac_cfg[mac_idx].enabled)
@@ -498,18 +498,24 @@ static int shim_register_mac_interrupts(struct hcp_device *hcp,
 		/* Format IRQ name */
 		if (mac_idx == 0)
 			snprintf(shim->mii_irq_name[mac_idx],
-				 SHIM_MAC_IRQ_NAME_LEN, "shim-phy-RXAUI-%d",
-				 mac_idx);
+				 SHIM_MAC_IRQ_NAME_LEN, "xgmii");
 		else
 			snprintf(shim->mii_irq_name[mac_idx],
-				 SHIM_MAC_IRQ_NAME_LEN, "shim-phy-SGMII-%d",
-				 mac_idx);
+				 SHIM_MAC_IRQ_NAME_LEN, "gmii%d", mac_idx - 1);
 
-		/* Request IRQ with devm for automatic cleanup */
-		ret = devm_request_irq(dev, shim->mac_cfg[mac_idx].mac_irq,
-				       shim_phy_interrupt_handler, IRQF_SHARED,
-				       shim->mii_irq_name[mac_idx],
-				       &shim->mac_cfg[mac_idx]);
+		irq = platform_get_irq_byname(hcp->pdev,
+					      shim->mii_irq_name[mac_idx]);
+		if (irq < 0) {
+			dev_err(dev, "Failed irq_byname %s for MAC-%d: %d\n",
+				shim->mii_irq_name[mac_idx], mac_idx, ret);
+			/* Disable this MAC and continue with others */
+			shim_mac_disable(mac_idx);
+			continue;
+		}
+
+		ret = request_irq(irq, shim_phy_interrupt_handler, IRQF_SHARED,
+				  shim->mii_irq_name[mac_idx],
+				  &shim->mac_cfg[mac_idx]);
 		if (ret) {
 			dev_err(dev,
 				"Failed to request IRQ %d for MAC-%d: %d\n",

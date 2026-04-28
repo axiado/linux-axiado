@@ -70,7 +70,11 @@
  * Refer Firmware Reference Manual of EIP - page_23
  */
 #define CMD_TOKEN_WORD_0_VAL 0xF0000000
+#ifndef CONFIG_ARCH_AX3005
 #define CMD_TOKEN_WORD_1_VAL 0x00200200
+#else
+#define CMD_TOKEN_WORD_1_VAL 0x00300200
+#endif
 
 /* TR Pointer (Low/High) for Lookup Mode */
 #define CMD_TOKEN_WORD_2_VAL 0xFFFFFFFC
@@ -80,6 +84,10 @@
 #define CMD_TOKEN_WORD_5_VAL 0x00000e00
 #define CMD_TOKEN_WORD_6_VAL 0x00000000
 #define CMD_TOKEN_WORD_7_VAL 0x00000000
+#define CMD_TOKEN_WORD_8_VAL 0x00000000
+#define CMD_TOKEN_WORD_9_VAL 0x00000000
+#define CMD_TOKEN_WORD_10_VAL 0x00000000
+#define CMD_TOKEN_WORD_11_VAL 0x00000000
 
 /* * TDEST Mask Values */
 #define TDEST_MASK_VALUE_XG 0xFFFF0A00 /* 10G Port */

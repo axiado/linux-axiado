@@ -67,7 +67,10 @@ void eip_delete_tx_buffers(struct eip_ring_interface *eip_ring)
 
 	if (eip_ring->tx_buff) {
 		for (i = 0; i < EIP_MAX_TX_PKT_BUFFERS; i++)
-			dma_buf_release(eip_ring->tx_buff[i].handle);
+			if (eip_ring->tx_buff[i].handle.p) {
+				dma_buf_release(eip_ring->tx_buff[i].handle);
+				eip_ring->tx_buff[i].handle.p = NULL;
+			}
 		kfree(eip_ring->tx_buff);
 		eip_ring->tx_buff = NULL;
 	}
@@ -155,8 +158,12 @@ int eip_create_rx_buffers(struct eip_ring_interface *eip_ring)
 	return 0;
 
 err_dmabuff_alloc:
-	for (int j = 0; j < i; j++)
-		dma_buf_release(eip_ring->rx_buff[j].handle);
+	for (int j = 0; j < i; j++) {
+		if (eip_ring->rx_buff[j].handle.p) {
+			dma_buf_release(eip_ring->rx_buff[j].handle);
+			eip_ring->rx_buff[j].handle.p = NULL;
+		}
+	}
 	kfree(eip_ring->rx_buff);
 	eip_ring->rx_buff = NULL;
 err_alloc_rx_buffers:
@@ -173,8 +180,12 @@ void eip_delete_rx_buffers(struct eip_ring_interface *eip_ring)
 	u32 i;
 
 	if (eip_ring->rx_buff) {
-		for (i = 0; i < MAX_RD_COUNT; i++)
-			dma_buf_release(eip_ring->rx_buff[i].handle);
+		for (i = 0; i < MAX_RD_COUNT; i++) {
+			if (eip_ring->rx_buff[i].handle.p) {
+				dma_buf_release(eip_ring->rx_buff[i].handle);
+				eip_ring->rx_buff[i].handle.p = NULL;
+			}
+		}
 
 		kfree(eip_ring->rx_buff);
 		eip_ring->rx_buff = NULL;
