@@ -329,3 +329,6 @@
 	status = "okay";
 };
 
+&mac4 {
+	status = "okay";
+};
