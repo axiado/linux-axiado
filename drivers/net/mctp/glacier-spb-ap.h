@@ -110,7 +110,7 @@ typedef struct {
 
 	// required for both interrupt and no interrupt
 	ssize_t (*spi_xfer)(struct spi_device *spi, const char *txbuf, size_t txlen,
-								const char *rxbuf, size_t rxlen, bool cs_change);
+								char *rxbuf, size_t rxlen, bool cs_change);
 } SpbAp;
 
 #define POLL_SREG_TIMEOUT_MSECS	  10000ULL
@@ -132,7 +132,7 @@ static inline uint64_t clock_msecs(void)
 	return (ts.tv_sec * 1000ULL + (ts.tv_nsec >> 20));
 }
 
-static const char *mailbox_str(uint32_t mb)
+static __maybe_unused const char *mailbox_str(uint32_t mb)
 {
 	static char str[128];
 
