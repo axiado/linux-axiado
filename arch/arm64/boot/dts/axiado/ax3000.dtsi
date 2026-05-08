@@ -145,6 +145,12 @@
 			clock-frequency = <125000000>;
 		};
 
+		ref_clk: ref_clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <1>;
+		};
+
 		spi_clk: spi_clk {
 			compatible = "fixed-clock";
 			#clock-cells = <0>;
@@ -802,6 +808,16 @@
 			interrupt-parent = <&gic500>;
 			interrupts = <GIC_SPI 118 IRQ_TYPE_LEVEL_HIGH>;
 			num-cs = <1>;
+			status = "disabled";
+		};
+
+		rtc0: rtc@80782000 {
+			compatible = "cdns,rtc-r109v3";
+			reg = <0x0 0x80782000 0x0 0xff>;
+			clock-names = "pclk", "ref_clk";
+			clocks = <&ref_clk &ref_clk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 109 IRQ_TYPE_LEVEL_HIGH>;
 			status = "disabled";
 		};
 
