@@ -36,3 +36,7 @@
 &axiado_mfd {
 	status = "okay";
 };
+
+&rtc0 {
+	status = "okay";
+};

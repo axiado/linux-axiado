@@ -82,6 +82,10 @@
 	status = "okay";
 };
 
+&rtc0 {
+	status = "okay";
+};
+
 &spi2 {
 	status = "okay";
 	spi-bridge@0 {
