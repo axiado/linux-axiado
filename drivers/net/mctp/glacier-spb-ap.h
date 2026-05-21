@@ -114,7 +114,13 @@ typedef struct {
 } SpbAp;
 
 #define POLL_SREG_TIMEOUT_MSECS	  10000ULL
-#define POLL_INT_TIMEOUT_MSECS	  1000ULL
+
+#ifdef CONFIG_ARCH_AX3005
+#define POLL_INT_TIMEOUT_MSECS    30000ULL
+#else
+#define POLL_INT_TIMEOUT_MSECS    1000ULL
+#endif
+
 #define MAX_BYTES_PER_TRANSACTION 32
 #define WAIT_CYCLES		  0
 #define TAR_CYCLES		  1 // 1 in single, 4 in quad
@@ -217,62 +223,118 @@ static inline void spi_xfer(SpbAp *ap, int sendLen, uint8_t *xbuf, int recvLen,
 	ap->spi_xfer(ap->spi, xbuf, sendLen, rbuf, recvLen, deassert);
 }
 
+/*
+ * spi_xfer issues a full-duplex transfer of (txlen + rxlen) bytes through a
+ * single shared buffer. On full-duplex controllers (e.g. DesignWare SSI), the
+ * RX FIFO captures bytes from every clock — including the master's TX phase,
+ * during which the slave isn't driving yet. So the slave's response actually
+ * starts at buf[txlen], not buf[0]. All offsets below add the function's
+ * txlen to compensate.
+ */
+
 uint16_t sreg_write_8(SpbAp *ap, uint16_t addr, uint8_t value)
 {
 	uint8_t buf[1 + 2 + 1 + TAR_WAIT_CYCLES + 2] = { 0 };
+#ifdef CONFIG_ARCH_AX3005
+	/* AX3005 / DW-SSI: slave drives MISO only after master TX phase. */
+	const int txlen = 1 + 2 + 1;
+#endif
 
 	buf[0] = CMD_SREG_W8;
 	w2buf(addr, buf + 1);
 	buf[3] = value;
+#ifdef CONFIG_ARCH_AX3005
+	spi_xfer(ap, txlen, buf, TAR_WAIT_CYCLES + 2, buf, true);
+	/* return lower 16 bits of status (txlen-shifted) */
+	return (buf2w(buf + txlen + TAR_WAIT_CYCLES));
+#else
 	spi_xfer(ap, 1 + 2 + 1, buf, TAR_WAIT_CYCLES + 2, buf, true);
 	// return lower 16 bits of status
 	return (buf2w(buf + TAR_WAIT_CYCLES));
+#endif
 }
 
 uint16_t sreg_write_32(SpbAp *ap, uint16_t addr, uint32_t value)
 {
 	uint8_t buf[1 + 2 + 4 + TAR_WAIT_CYCLES + 2] = { 0 };
+#ifdef CONFIG_ARCH_AX3005
+	const int txlen = 1 + 2 + 4;
+#endif
 
 	buf[0] = CMD_SREG_W32;
 	w2buf(addr, buf + 1);
 	dw2buf(value, buf + 3);
+#ifdef CONFIG_ARCH_AX3005
+	spi_xfer(ap, txlen, buf, TAR_WAIT_CYCLES + 2, buf, true);
+	/* return lower 16 bits of status (txlen-shifted) */
+	return (buf2w(buf + txlen + TAR_WAIT_CYCLES));
+#else
 	spi_xfer(ap, 7, buf, TAR_WAIT_CYCLES + 2, buf, true);
 	// return lower 16 bits of status
 	return (buf2w(buf + TAR_WAIT_CYCLES));
+#endif
 }
 
 uint16_t sreg_read_8(SpbAp *ap, uint16_t addr, uint8_t *val)
 {
 	uint8_t buf[1 + 2 + TAR_WAIT_CYCLES + 2 + 1] = { 0 };
+#ifdef CONFIG_ARCH_AX3005
+	const int txlen = 1 + 2;
+#endif
 
 	buf[0] = CMD_SREG_R8;
 	w2buf(addr, buf + 1);
+#ifdef CONFIG_ARCH_AX3005
+	spi_xfer(ap, txlen, buf, TAR_WAIT_CYCLES + 2 + 1, buf, true);
+	*val = buf[txlen + TAR_WAIT_CYCLES + 2];
+	/* return lower 16 bits of status (txlen-shifted) */
+	return (buf2w(buf + txlen + TAR_WAIT_CYCLES));
+#else
 	spi_xfer(ap, 3, buf, TAR_WAIT_CYCLES + 2 + 1, buf, true);
 	*val = buf[TAR_WAIT_CYCLES + 2];
 	// return lower 16 bits of status
 	return (buf2w(buf + TAR_WAIT_CYCLES));
+#endif
 }
 
 uint16_t sreg_read_32(SpbAp *ap, uint16_t addr, uint32_t *val)
 {
 	uint8_t buf[1 + 2 + TAR_WAIT_CYCLES + 2 + 4] = { 0 };
+#ifdef CONFIG_ARCH_AX3005
+	const int txlen = 1 + 2;
+#endif
 
 	buf[0] = CMD_SREG_R32;
 	w2buf(addr, buf + 1);
+#ifdef CONFIG_ARCH_AX3005
+	spi_xfer(ap, txlen, buf, TAR_WAIT_CYCLES + 2 + 4, buf, true);
+	*val = buf2dw(buf + txlen + TAR_WAIT_CYCLES + 2);
+	/* return lower 16 bits of status (txlen-shifted) */
+	return (buf2w(buf + txlen + TAR_WAIT_CYCLES));
+#else
 	spi_xfer(ap, 3, buf, TAR_WAIT_CYCLES + 2 + 4, buf, true);
 	*val = buf2dw(buf + TAR_WAIT_CYCLES + 2);
 	// return lower 16 bits of status
 	return (buf2w(buf + TAR_WAIT_CYCLES));
+#endif
 }
 
 uint32_t cmd_poll_all(SpbAp *ap)
 {
 	uint8_t buf[1 + TAR_CYCLES + 4] = { 0 };
+#ifdef CONFIG_ARCH_AX3005
+	const int txlen = 1;
 
+	buf[0] = CMD_POLL_ALL;
+	spi_xfer(ap, txlen, buf, TAR_CYCLES + 4, buf, true);
+
+	return (buf2dw(buf + txlen + TAR_CYCLES));
+#else
 	buf[0] = CMD_POLL_ALL;
 	spi_xfer(ap, 1, buf, TAR_CYCLES + 4, buf, true);
 
 	return (buf2dw(buf + TAR_CYCLES));
+#endif
 }
 
 // Read RX_FIFO_EMPTY
@@ -447,6 +509,51 @@ SpbApStatus posted_write(SpbAp *ap, uint16_t offset, int len, uint8_t *payload)
 static SpbApStatus posted_read_helper(SpbAp *ap, uint8_t cmd, uint8_t cmd2,
 				      uint16_t addr, int bytes, uint8_t *buf)
 {
+#ifdef CONFIG_ARCH_AX3005
+	/*
+	 * AX3005 / DesignWare SSI variant.
+	 *
+	 * Linux SPI core deasserts CS at end of every spi_message regardless of
+	 * cs_change, so the original three-xfer flow (FIFO init / optional poll /
+	 * data read) cannot work here — the slave's FIFO-read state machine
+	 * resets between messages. Combine the TAR + FSR + data drain into a
+	 * single CS-asserted transfer.
+	 *
+	 * Wire layout (with txlen=1 master TX phase):
+	 *   buf[0]                      cmd (master TX; slave silent)
+	 *   buf[txlen .. +TAR_CYCLES]   TAR (slave turning around)
+	 *   buf[+TAR_CYCLES .. +2]      FSR  (16-bit status, MSB first)
+	 *   buf[+2 .. +bytes]           data
+	 */
+	SpbApStatus status;
+	const int txlen = 1;
+	const int data_off = txlen + TAR_CYCLES + 2;
+
+	/* 1) Send the post-read command (queues data in the slave's FIFO). */
+	buf[0] = cmd;
+	w2buf(addr, buf + 1);
+	spi_xfer(ap, 3, buf, 0, buf, true);
+
+	/* 2) Wait for the slave's TX FIFO to have data ready. */
+	status = wait_for_tx_fifo_not_empty(ap);
+	MCTP_ASSERT_RET(status == SPB_AP_OK, status,
+			"wait_for_tx_fifo_not_empty failed: %d", status);
+
+	/* 3) Initiate FIFO read AND drain the entire response in one transfer. */
+	buf[0] = cmd2;
+	spi_xfer(ap, txlen, buf, TAR_CYCLES + 2 + bytes, buf, true);
+
+	/* MemoryReadDone (bit 1) lives in the FSR low byte. */
+	if ((buf[txlen + TAR_CYCLES + 1] & 0x02) == 0)
+		return SPB_AP_ERROR_TIMEOUT;
+
+	/* Shift the payload down to buf[0..bytes] for the caller. */
+	memmove(buf, buf + data_off, bytes);
+
+	clear_memory_read_done(ap);
+
+	return (SPB_AP_OK);
+#else
 	SpbApStatus status;
 	// Send the post read command
 	buf[0] = cmd;
@@ -483,6 +590,7 @@ static SpbApStatus posted_read_helper(SpbAp *ap, uint8_t cmd, uint8_t cmd2,
 	clear_memory_read_done(ap);
 
 	return (SPB_AP_OK);
+#endif
 }
 
 SpbApStatus posted_read(SpbAp *ap, int offset, int len, uint8_t *payload)
