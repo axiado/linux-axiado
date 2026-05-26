@@ -1387,6 +1387,12 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 			};
+
+			hfifo: hfifo {
+				compatible = "axiado,ax3000-hfifo";
+				mac = <1>;
+				status = "disabled";
+			};
 		};
 	};
 };

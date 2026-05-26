@@ -332,3 +332,8 @@
 &mac4 {
 	status = "okay";
 };
+
+&hfifo {
+	mac = <4>;
+	status = "okay";
+};
