@@ -17,6 +17,7 @@ description: |
   the Axiado AX3000 SoC. It integrates:
   - 5 Ethernet MACs (one 10Gbps RXAUI, four 1Gbps SGMII/RMII)
   - SHIM packet interface with FIFO-based packet processing
+  - Host FIFO packet path to bypass EIP completely
   - Rambus EIP-197 hardware crypto accelerator
   - MDIO bus controller for PHY management
 
@@ -109,6 +110,24 @@ properties:
 
     required:
       - compatible
+
+    unevaluatedProperties: false
+
+  hfifo:
+    type: object
+    $ref: ethernet-controller.yaml#
+    description: |
+      Alternate packet path to bypass EIP module completely. Host FIFO is used
+      for Tx/Rx packets. Host FIFO packet path requires a MAC port to be locked
+      as at a given time. Only one MAC port can be used with Host FIFO.
+
+    properties:
+      compatible:
+        const: axiado,ax3000-hfifo
+
+      mac:
+        maxItems: 1
+        description: MAC index (0-4)
 
     unevaluatedProperties: false
 
@@ -249,6 +268,12 @@ examples:
                     reg = <4>;
                     compatible = "ethernet-phy-ieee802.3-c22";
                 };
+            };
+
+            hfifo: hfifo {
+              compatible = "axiado,ax3000-hfifo";
+              mac = <1>;
+              status = "disabled";
             };
         };
     };
