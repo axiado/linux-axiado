@@ -37,3 +37,4 @@ obj-$(CONFIG_AXIADO_HCP) += hcp_main.o
 # HCP Subsystems (recurse into subdirectories)
 obj-$(CONFIG_AXIADO_HCP) += shim/
 obj-$(CONFIG_AXIADO_HCP) += eip/
+obj-$(CONFIG_AXIADO_HCP) += hfifo/

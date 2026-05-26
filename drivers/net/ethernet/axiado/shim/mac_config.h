@@ -199,7 +199,7 @@ void mmd_write(u32 port_no, u32 mmd, u32 addr, u32 value);
 #define CNT_RANGEERR 26
 #define CNT_ERROCTETS 31
 
-/* FIFO Registers */
+/* SHIM FIFO Registers */
 #define REG_XGE_SHIM_FIFO 0x0040
 #define SHIM_MAC_TX_OVFLOW_BIT 7
 #define SHIM_MAC_RX_OVFLOW_BIT 3
@@ -207,6 +207,46 @@ void mmd_write(u32 port_no, u32 mmd, u32 addr, u32 value);
 #define BIT_TX_RST 4
 #define BIT_TX_EMPTY 6
 #define BIT_RX_EMPTY 2
+
+#define HOST_TX_FIFO_EN 1
+/* Host FIFO Control/status registers */
+#define TX_PACKET_FIFO_0 0x100
+#define TX_FIFO_RST 0
+#define TX_FIFO_FULL 1
+#define TX_FIFO_OVF 2
+#define TX_FIFO_RDY 3
+#define TX_FIFO_OVF_IRQEN 8
+#define TX_FIFO_OVF_MON 9
+#define TX_FIFO_LVL 16
+#define TX_PACKET_FIFO_1 0x104
+#define TX_FIFO_SOP 0
+#define TX_FIFO_EOP 1
+#define TX_FIFO_MOD 4
+#define TX_PACKET_FIFO_WDATA 0x108
+#define TX_FIFO_WDATA 0
+#define RX_PACKET_FIFO_0 0x110
+#define RX_FIFO_RST 0
+#define RX_FIFO_FULL 1
+#define RX_FIFO_OVF 2
+#define RX_FIFO_DAV 3
+#define RX_FIFO_OVF_IRQ_EN 8
+#define RX_FIFO_DAV_IRQ_EN 9
+#define RX_FIFO_OVF_MON 10
+#define RX_FIFO_DAV_MON 11
+#define RX_FIFO_LVL 16
+#define RX_FIFO_SEL 4
+
+#define RX_PACKET_FIFO_1 0x114
+#define RX_FIFO_SOP 0
+#define RX_FIFO_EOP 1
+#define RX_FIFO_MOD 4
+#define RX_FIFO_FRMLEN 16
+#define RX_PACKET_FIFO_2 0x118
+#define RX_FIFO_FRMSTAT 0
+#define RX_PACKET_FIFO_RDATA 0x11c
+#define RX_FIFO_RDATA 0
+
+#define HPI_CSR 0x014
 
 /* Port Control Register */
 #define REG_XGE_PORT_CTRL 0x0000

@@ -15,3 +15,4 @@ axiado_shim-y := \
 
 ccflags-y += -I$(src)
 ccflags-y += -I$(srctree)/drivers/net/ethernet/axiado
+ccflags-y += -I$(srctree)/drivers/net/ethernet/axiado/hfifo

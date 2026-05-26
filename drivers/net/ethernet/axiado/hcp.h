@@ -80,6 +80,7 @@ struct hcp_device {
 	/* Subsystem private data pointers */
 	void *shim_priv;
 	void *eip_priv;
+	void *hfifo_priv;
 
 	/* Clocks */
 	struct clk *eip197_clk;
@@ -90,6 +91,19 @@ struct hcp_device {
 	/* Network devices */
 	struct net_device *netdevs[MAX_NETDEV_CNT];
 	int num_netdevs;
+
+	/* true for Host FIFO mode, false for EIP mode */
+	bool hfifo_mode;
+};
+
+/**
+ * struct hfifo_priv - Host FIFO private structure
+ * @data: Host FIFO private data pointer
+ * @mac_idx: MAC port index selected for Host FIFO
+ */
+struct hfifo_priv {
+	void *data;
+	u8 mac_idx;
 };
 
 /* Helper macro to access MAC configuration through shim_priv.
@@ -139,5 +153,19 @@ int eip_subsystem_init(struct hcp_device *hcp);
  * @hcp: HCP device structure
  */
 void eip_subsystem_exit(struct hcp_device *hcp);
+/**
+ * hfifo_subsystem_init - Initialize Host FIFO subsystem
+ * @hcp: HCP device structure
+ *
+ * Initializes the Host FIFO and network divice.
+ *
+ * Return: 0 on success, negative error code on failure
+ */
+int hfifo_subsystem_init(struct hcp_device *hcp);
+/**
+ * hfifo_subsystem_exit - Cleanup Host FIFO subsystem
+ * @hcp: HCP device structure
+ */
+void hfifo_subsystem_exit(struct hcp_device *hcp);
 
 #endif /* _AXIADO_HCP_H_ */

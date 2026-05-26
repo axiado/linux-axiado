@@ -178,7 +178,7 @@ static int eip_set_mac(struct net_device *dev, void *address)
 
 		mac_1 = (u32)addr->sa_data[4] | (u32)addr->sa_data[5] << 8;
 
-		mac_phy_addr_wr(priv->app_id, mac_0, mac_1);
+		mac_addr_app_id_wr(priv->app_id, mac_0, mac_1);
 	}
 
 	return 0;
@@ -1034,7 +1034,7 @@ int device_init(struct eip_public *eip_pub, struct device *dev)
 		mac_0 = 0;
 		mac_1 = 0;
 		if (i < MAX_MAC_CNT)
-			mac_phy_addr_rd(priv->app_id, &mac_0, &mac_1);
+			mac_addr_app_id_rd(priv->app_id, &mac_0, &mac_1);
 
 		if (ndev->dev_addr)
 			set_initial_mac(ndev, mac_0, mac_1);
@@ -1050,7 +1050,7 @@ int device_init(struct eip_public *eip_pub, struct device *dev)
 								 << 8;
 			LOG_DEBG("setting MAC for: %d - %s\n", i,
 				 netdev_name(ndev));
-			mac_phy_addr_wr(priv->app_id, mac_0, mac_1);
+			mac_addr_app_id_wr(priv->app_id, mac_0, mac_1);
 		}
 	}
 

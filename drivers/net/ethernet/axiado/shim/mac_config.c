@@ -163,7 +163,7 @@ static void sgmii_fast_sim(struct device *dev, int mac_idx)
 		return;
 
 #ifndef CONFIG_ARCH_AX3005
-	/* SGMII PHY tuning sequence required for link stability on this platform. */
+	/* SGMII PHY tuning sequence required for link stability. */
 	shim_write_phy_word(sgmii_base + 0x0dd4, 0x00);
 	shim_write_phy_word(sgmii_base + 0x070c, 0x00800000);
 	shim_write_phy_word(sgmii_base + 0x0710, 0x00a00090);
@@ -329,58 +329,144 @@ enum AX_SHIM_STATUS mac_flow_config(void)
 }
 
 /**
- * get_mac_base - Get base address for a MAC.
- * @app_id: Application ID (MAC_10G_APPID for 10G, 1-4 for 1G MACs).
+ * port_set_hfifo_mode - Set a MAC-port for Host FIFO Mode.
  *
- * Maps application ID to hardware MAC index and returns the register base.
- * 10G MAC (app_id=5) maps to index 0, 1G MACs use app_id directly.
- *
- * Return: MAC register base offset.
+ * The particular MAC port will be used by Host FIFO for send/recv data
  */
-static u32 get_mac_base(int app_id)
+void port_set_hfifo_mode(struct device *dev, u8 mac_idx)
 {
-	int idx = (app_id == MAC_10G_APPID) ? 0 : app_id;
+	u32 val, reg;
+	u8 port;
 
-	return MAC_BASE_OFFSET + (idx * MAC_CONFIG_BYTE_CNT);
+	if (!mac_idx)
+		port = 4;
+	else
+		port = mac_idx - 1;
+
+	/* Reset host rx-fifo */
+	reg = RX_PACKET_FIFO_0;
+	val = shim_read_word(reg);
+	val |= BIT(RX_FIFO_RST);
+	shim_write_word(reg, val);
+
+	/* Port Selection */
+	val = shim_read_word(reg);
+	val |= port << RX_FIFO_SEL;
+	shim_write_word(reg, val);
+
+	/* lock MAC port for host-tx-buffer */
+	reg = REG_XGE_PORT_CTRL + (mac_idx * 4);
+	val = shim_read_word(reg);
+	val |= BIT(HOST_TX_FIFO_EN);
+	shim_write_word(reg, val);
+
+	/* Reset tx fifos */
+	reg = TX_PACKET_FIFO_0;
+	val = shim_read_word(reg);
+	val |= BIT(TX_FIFO_RST);
+	shim_write_word(reg, val);
+
+	dev_dbg(dev, "MAC-%d is set to Host FIFO mode\n", mac_idx);
 }
 
 /**
- * mac_phy_addr_rd - Read the MAC address from hardware registers.
+ * mac_addr_rd - Read the MAC address from hardware registers.
+ * @mac_idx: MAC Index.
+ * @mac_0: Pointer for lower 32 bits of MAC address.
+ * @mac_1: Pointer for upper 16 bits of MAC address.
+ *
+ */
+static void mac_addr_rd(u8 mac_idx, u32 *mac_0, u32 *mac_1)
+{
+	u32 mac_base = MAC_BASE_OFFSET + (mac_idx * MAC_CONFIG_BYTE_CNT);
+
+	*mac_0 = shim_read_word(mac_base + R_MAC_0);
+	*mac_1 = shim_read_word(mac_base + R_MAC_1);
+}
+
+/**
+ * mac_addr_app_id_rd - Read the MAC address from hardware registers.
  * @app_id: Application ID (Logic mapping).
  * @mac_0: Pointer for lower 32 bits of MAC address.
  * @mac_1: Pointer for upper 16 bits of MAC address.
  *
  * Return: true.
  */
-bool mac_phy_addr_rd(int app_id, u32 *mac_0, u32 *mac_1)
+bool mac_addr_app_id_rd(u8 app_id, u32 *mac_0, u32 *mac_1)
 {
-	u32 mac_base = get_mac_base(app_id);
+	u8 mac_idx = (app_id == MAC_10G_APPID) ? 0 : app_id;
 
-	*mac_0 = shim_read_word(mac_base + R_MAC_0);
-	*mac_1 = shim_read_word(mac_base + R_MAC_1);
+	mac_addr_rd(mac_idx, mac_0, mac_1);
 
 	return true;
 }
-EXPORT_SYMBOL_GPL(mac_phy_addr_rd);
+EXPORT_SYMBOL_GPL(mac_addr_app_id_rd);
 
 /**
- * mac_phy_addr_wr - Configure the MAC address in hardware registers.
+ * mac_addr_mac_idx_rd - Read the MAC address from hardware registers.
+ * @mac_idx: MAC Index.
+ * @mac_0: Pointer for lower 32 bits of MAC address.
+ * @mac_1: Pointer for upper 16 bits of MAC address.
+ *
+ * Return: true.
+ */
+bool mac_addr_mac_idx_rd(int mac_idx, u32 *mac_0, u32 *mac_1)
+{
+	mac_addr_rd(mac_idx, mac_0, mac_1);
+
+	return true;
+}
+EXPORT_SYMBOL_GPL(mac_addr_mac_idx_rd);
+
+/**
+ * mac_addr_wr - Configure the MAC address in hardware registers.
+ * @mac_idx: MAC Index.
+ * @mac_0: Lower 32 bits of MAC address.
+ * @mac_1: Upper 16 bits of MAC address.
+ *
+ * Return: true.
+ */
+static void mac_addr_wr(u8 mac_idx, u32 mac_0, u32 mac_1)
+{
+	u32 mac_base = MAC_BASE_OFFSET + (mac_idx * MAC_CONFIG_BYTE_CNT);
+
+	shim_write_word(mac_base + R_MAC_0, mac_0);
+	shim_write_word(mac_base + R_MAC_1, mac_1);
+}
+
+/**
+ * mac_addr_app_id_wr - Configure the MAC address in hardware registers.
  * @app_id: Application ID (Logic mapping).
  * @mac_0: Lower 32 bits of MAC address.
  * @mac_1: Upper 16 bits of MAC address.
  *
  * Return: true.
  */
-bool mac_phy_addr_wr(int app_id, u32 mac_0, u32 mac_1)
+bool mac_addr_app_id_wr(u8 app_id, u32 mac_0, u32 mac_1)
 {
-	u32 mac_base = get_mac_base(app_id);
+	u8 mac_idx = (app_id == MAC_10G_APPID) ? 0 : app_id;
 
-	shim_write_word(mac_base + R_MAC_0, mac_0);
-	shim_write_word(mac_base + R_MAC_1, mac_1);
+	mac_addr_wr(mac_idx, mac_0, mac_1);
 
 	return true;
 }
-EXPORT_SYMBOL_GPL(mac_phy_addr_wr);
+EXPORT_SYMBOL_GPL(mac_addr_app_id_wr);
+
+/**
+ * mac_addr_mac_idx_wr - Configure the MAC address in hardware registers.
+ * @mac_idx: MAC Index.
+ * @mac_0: Lower 32 bits of MAC address.
+ * @mac_1: Upper 16 bits of MAC address.
+ *
+ * Return: true.
+ */
+bool mac_addr_mac_idx_wr(u8 mac_idx, u32 mac_0, u32 mac_1)
+{
+	mac_addr_wr(mac_idx, mac_0, mac_1);
+
+	return true;
+}
+EXPORT_SYMBOL_GPL(mac_addr_mac_idx_wr);
 
 /**
  * mac_update_promisc - Toggle promiscuous mode.
@@ -389,8 +475,9 @@ EXPORT_SYMBOL_GPL(mac_phy_addr_wr);
  */
 void mac_update_promisc(int app_id, bool promisc)
 {
+	u8 mac_idx = (app_id == MAC_10G_APPID) ? 0 : app_id;
+	u32 mac_base = MAC_BASE_OFFSET + (mac_idx * MAC_CONFIG_BYTE_CNT);
 	u32 cmd_cfg;
-	u32 mac_base = get_mac_base(app_id);
 
 	cmd_cfg = shim_read_word(mac_base + R_COMMAND_CONFIG);
 
@@ -417,6 +504,14 @@ bool is_rx_local_fault(u8 mac_idx)
 
 	mac_base = MAC_BASE_OFFSET + (mac_idx * MAC_CONFIG_BYTE_CNT);
 	mac_status = shim_read_word(mac_base + R_STATUS);
+	if (mac_status & BIT(0)) {
+		/* R_STATUS BIT(0) is a latching fault indicator. The first read
+		 * clears the latch. Read again to get the live fault state,
+		 * so transient faults during RXAUI link negotiation do not
+		 * incorrectly trigger the phy-reset retry loop.
+		 */
+		mac_status = shim_read_word(mac_base + R_STATUS);
+	}
 
 	return !!(mac_status & BIT(0));
 }

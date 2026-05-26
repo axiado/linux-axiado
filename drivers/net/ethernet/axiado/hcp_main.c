@@ -33,7 +33,65 @@
 /* Device Tree IRQ indices */
 #define HCP_IRQ_EIP197_INDEX		0
 #define HCP_IRQ_RING_BASE_INDEX		1
-#define HCP_IRQ_MAC_BASE_INDEX		(HCP_IRQ_RING_BASE_INDEX + RING_INTERFACE_CNT)
+#define HCP_IRQ_RING_BASE_FIRST_CNT 4
+#define HCP_IRQ_MAC_BASE_INDEX \
+	(HCP_IRQ_RING_BASE_INDEX + HCP_IRQ_RING_BASE_FIRST_CNT)
+
+/**
+ * hcp_get_pkt_path - Parse DT for packet path EIP/Host-FIFO
+ * @pdev: Platform device
+ * @hcp: HCP device structure
+ *
+ * Parse the Device Tree of hcp-node for packet (tx/rx) path
+ *
+ * Return: 0 on success, negative error code on failure
+ */
+static int hcp_get_pkt_path(struct platform_device *pdev,
+			    struct hcp_device *hcp)
+{
+	struct device *dev = &pdev->dev;
+	struct device_node *child;
+	struct hfifo_priv *hpriv = NULL;
+	u32 mac_idx = 0;
+	int ret = 0;
+
+	child = of_get_child_by_name(dev->of_node, "hfifo");
+	if (child) {
+		of_node_put(child);
+		if (of_device_is_available(child)) {
+			ret = of_property_read_u32(child, "mac", &mac_idx);
+			if (ret) {
+				dev_warn(
+					dev,
+					"Port 'mac' to bind is missing for Host Packet FIFO\n");
+				ret = -EINVAL;
+				goto end;
+			}
+			if (mac_idx >= MAX_MAC_CNT) {
+				dev_err(dev, "Invalid mac index %u, max %d\n",
+					mac_idx, MAX_MAC_CNT - 1);
+				ret = -EINVAL;
+				goto end;
+			}
+			hpriv = devm_kzalloc(dev, sizeof(*hpriv), GFP_KERNEL);
+			if (!hpriv) {
+				dev_err(dev,
+					"Failed to allocate memory for HFIFO\n");
+				ret = -ENOMEM;
+				goto end;
+			}
+			hpriv->mac_idx = mac_idx;
+			hcp->hfifo_mode = true;
+			dev_info(dev,
+				 "Host Packet FIFO Port is set to MAC-%u\n",
+				 mac_idx);
+		}
+	}
+
+end:
+	hcp->hfifo_priv = hpriv;
+	return ret;
+}
 
 /**
  * hcp_map_resources - Map all memory regions from Device Tree
@@ -53,21 +111,25 @@ static int hcp_map_resources(struct platform_device *pdev,
 
 	dev_info(dev, "Mapping HCP memory resources\n");
 
-	/* Map EIP-197 crypto engine registers - REQUIRED */
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "eip197");
-	if (!res) {
-		dev_err(dev, "Missing eip197 resource in Device Tree\n");
-		return -EINVAL;
-	}
-	hcp->eip197_base = devm_ioremap_resource(dev, res);
-	if (IS_ERR(hcp->eip197_base))
-		return PTR_ERR(hcp->eip197_base);
+	if (!hcp->hfifo_mode) {
+		/* Map EIP-197 crypto engine registers - REQUIRED */
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+						   "eip197");
+		if (!res) {
+			dev_err(dev,
+				"Missing eip197 resource in Device Tree\n");
+			return -EINVAL;
+		}
+		hcp->eip197_base = devm_ioremap_resource(dev, res);
+		if (IS_ERR(hcp->eip197_base))
+			return PTR_ERR(hcp->eip197_base);
 
-	hcp->eip197_phys = res->start;
-	hcp->eip197_size = resource_size(res);
-	dev_info(dev, "EIP-197: phys=0x%llx size=0x%llx\n",
-		 (unsigned long long)hcp->eip197_phys,
-		 (unsigned long long)hcp->eip197_size);
+		hcp->eip197_phys = res->start;
+		hcp->eip197_size = resource_size(res);
+		dev_info(dev, "EIP-197: phys=0x%llx size=0x%llx\n",
+			 (unsigned long long)hcp->eip197_phys,
+			 (unsigned long long)hcp->eip197_size);
+	}
 
 	/* Map SHIM registers - REQUIRED */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "shim");
@@ -107,9 +169,12 @@ static int hcp_map_resources(struct platform_device *pdev,
  *
  * Gets all interrupt numbers from the device tree node.
  * Expected order:
- *   IRQ 0: EIP-197 crypto
- *   IRQ 1-4: Rings 0-3
- *   IRQ 5-9: MACs 0-4
+ *   IRQ 0:    EIP-197 crypto
+ *   IRQ 1-4:  Rings 0-3
+ *   IRQ 5-9:  MACs 0-4
+ *   IRQ 10-17: Rings 4-11 (AX3005 only)
+ *
+ * EIP-197 and ring IRQs are skipped in hfifo mode.
  *
  * Return: 0 on success, negative error code on failure
  */
@@ -117,26 +182,33 @@ static int hcp_get_interrupts(struct platform_device *pdev,
 			      struct hcp_device *hcp)
 {
 	struct device *dev = &pdev->dev;
-	int i, irq;
+	int i, irq, num;
 
-	/* EIP-197 crypto interrupt */
-	irq = platform_get_irq(pdev, HCP_IRQ_EIP197_INDEX);
-	if (irq < 0) {
-		dev_err(dev, "Failed to get EIP-197 IRQ\n");
-		return irq;
-	}
-	hcp->eip197_irq = irq;
-	dev_info(dev, "EIP-197 IRQ: %d\n", hcp->eip197_irq);
-
-	/* EIP Ring interrupts */
-	for (i = 0; i < RING_INTERFACE_CNT; i++) {
-		irq = platform_get_irq(pdev, HCP_IRQ_RING_BASE_INDEX + i);
+	if (!hcp->hfifo_mode) {
+		/* EIP-197 crypto interrupt */
+		irq = platform_get_irq(pdev, HCP_IRQ_EIP197_INDEX);
 		if (irq < 0) {
-			dev_err(dev, "Failed to get EIP Ring %d IRQ\n", i);
+			dev_err(dev, "Failed to get EIP-197 IRQ\n");
 			return irq;
 		}
-		hcp->ring_irqs[i] = irq;
-		dev_dbg(dev, "EIP Ring %d IRQ: %d\n", i, hcp->ring_irqs[i]);
+		hcp->eip197_irq = irq;
+		dev_info(dev, "EIP-197 IRQ: %d\n", hcp->eip197_irq);
+
+		/* EIP Ring interrupts */
+		for (i = 0; i < RING_INTERFACE_CNT; i++) {
+			num = HCP_IRQ_RING_BASE_INDEX + i;
+			if (i >= HCP_IRQ_RING_BASE_FIRST_CNT)
+				num += MAX_MAC_CNT;
+			irq = platform_get_irq(pdev, num);
+			if (irq < 0) {
+				dev_err(dev, "Failed to get EIP Ring %d IRQ\n",
+					i);
+				return irq;
+			}
+			hcp->ring_irqs[i] = irq;
+			dev_dbg(dev, "EIP Ring %d IRQ: %d\n", i,
+				hcp->ring_irqs[i]);
+		}
 	}
 
 	/* MAC interrupts */
@@ -335,6 +407,13 @@ static int hcp_probe(struct platform_device *pdev)
 	hcp->pdev = pdev;
 	platform_set_drvdata(pdev, hcp);
 
+	/* Host Packet FIFO or EIP path for Tx/Rx packet */
+	ret = hcp_get_pkt_path(pdev, hcp);
+	if (ret) {
+		dev_err(dev, "Failed to get Packet Path: %d\n", ret);
+		return ret;
+	}
+
 	/* Map all memory regions from consolidated DT node */
 	ret = hcp_map_resources(pdev, hcp);
 	if (ret) {
@@ -355,38 +434,47 @@ static int hcp_probe(struct platform_device *pdev)
 	ret = shim_subsystem_init(hcp);
 	if (ret) {
 		dev_err(dev, "SHIM subsystem init failed: %d\n", ret);
-		return ret;
+		goto err;
 	}
 
-	/* Bypass vendor DDK's platform driver registration.
-	 * Manually initialize the global state the DDK expects.
-	 */
-	ret = hcp_init_vendor_ddk(hcp);
-	if (ret) {
-		dev_err(dev, "Vendor DDK init failed: %d\n", ret);
-		goto err_vendor_ddk;
-	}
+	if (hcp->hfifo_mode) {
+		ret = hfifo_subsystem_init(hcp);
+		if (ret) {
+			dev_err(dev, "HFIFO subsystem init failed: %d\n", ret);
+			goto err;
+		}
+	} else {
+		/* Bypass vendor DDK's platform driver registration.
+		 * Manually initialize the global state the DDK expects.
+		 */
+		ret = hcp_init_vendor_ddk(hcp);
+		if (ret) {
+			dev_err(dev, "Vendor DDK init failed: %d\n", ret);
+			goto err;
+		}
 
-	/* Initialize EIP subsystem (crypto engine and network devices).
-	 * This calls driver197_init() which will use the DDK global
-	 * structure we just populated.
-	 */
-	dev_info(dev, "Initializing EIP subsystem\n");
-	ret = eip_subsystem_init(hcp);
-	if (ret) {
-		dev_err(dev, "EIP subsystem init failed: %d\n", ret);
-		goto err_eip;
+		/* Initialize EIP subsystem (crypto engine and network devices).
+		 * This calls driver197_init() which will use the DDK global
+		 * structure we just populated.
+		 */
+		dev_info(dev, "Initializing EIP subsystem\n");
+		ret = eip_subsystem_init(hcp);
+		if (ret) {
+			dev_err(dev, "EIP subsystem init failed: %d\n", ret);
+			goto err;
+		}
 	}
 
 	dev_info(dev, "Axiado HCP initialized successfully\n");
 	return 0;
 
-err_eip:
+err:
+	dev_err(dev, "Axiado HCP initialization failed\n");
 	/* DDK cleanup is handled by eip_subsystem_exit if needed */
 	if (hcp->eip197_clk)
 		clk_disable_unprepare(hcp->eip197_clk);
-err_vendor_ddk:
 	shim_subsystem_exit(hcp);
+
 	return ret;
 }
 
@@ -413,6 +501,8 @@ static int hcp_remove(struct platform_device *pdev)
 
 	if (hcp->eip197_clk)
 		clk_disable_unprepare(hcp->eip197_clk);
+
+	hfifo_subsystem_exit(hcp);
 
 	shim_subsystem_exit(hcp);
 

@@ -17,6 +17,7 @@
 #include "shim_eip_common.h"
 #include "shim_mac.h"
 #include "shim_platform.h"
+#include "hfifo.h"
 
 static struct device *shim_get_dev(void)
 {
@@ -26,6 +27,33 @@ static struct device *shim_get_dev(void)
 static bool shim_mac_idx_valid(int mac_idx)
 {
 	return mac_idx >= 0 && mac_idx < MAX_MAC_CNT;
+}
+
+/**
+ * hfifo_irq_set_csr_val - Common function to enable/disable HFIFO interrupts
+ * @mac_idx: MAC index
+ * @enable: true to enable, false to disable
+ */
+static void hfifo_irq_set_csr_val(int mac_idx, bool enable)
+{
+	u32 csr_addr;
+	u32 val;
+
+	if (!shim_get_dev() || !shim_mac_idx_valid(mac_idx))
+		return;
+
+	csr_addr = SHIM_MAC_IRQ_CSR + (mac_idx * SHIM_MAC_REG_ADDR_SIZE);
+	val = shim_read_word(csr_addr);
+
+	if (enable)
+		val |= (CSR_REG_BIT_HPI_IRQ_EN | CSR_REG_BIT_MAC_IRQ_EN);
+	else
+		val &= ~(CSR_REG_BIT_HPI_IRQ_EN | CSR_REG_BIT_MAC_IRQ_EN);
+
+	val &= ~(CSR_REG_BIT_MAC_MON | CSR_REG_BIT_MACPHY_MON |
+		 CSR_REG_BIT_RX_FIFO_MON);
+
+	shim_write_word(csr_addr, val);
 }
 
 /**
@@ -125,6 +153,69 @@ void shim_irq_disable(int mac_idx)
 EXPORT_SYMBOL_GPL(shim_irq_disable);
 
 /**
+ * hfifo_irq_enable - Enables HFIFO IRQ for the given mac
+ * @mac_idx: MAC index
+ *
+ */
+void hfifo_irq_enable(int mac_idx)
+{
+	struct device *dev = shim_get_dev();
+	u32 mon_addr, csr_addr, val;
+
+	if (!dev) {
+		pr_err("%s: SHIM device not initialized\n", __func__);
+		return;
+	}
+
+	if (!shim_mac_idx_valid(mac_idx)) {
+		dev_err(dev, "%s: invalid mac_idx %d\n", __func__, mac_idx);
+		return;
+	}
+
+	mon_addr = RX_PACKET_FIFO_0;
+	csr_addr = SHIM_MAC_IRQ_CSR + (mac_idx * SHIM_MAC_REG_ADDR_SIZE);
+
+	val = shim_read_word(mon_addr);
+	val |= BIT(RX_FIFO_OVF_IRQ_EN) | BIT(RX_FIFO_DAV_IRQ_EN);
+	val |= BIT(RX_FIFO_OVF_MON) | BIT(RX_FIFO_DAV_MON);
+	val &= ~BIT(RX_FIFO_RST);
+	shim_write_word(mon_addr, val);
+
+	val = shim_read_word(csr_addr);
+	val &= ~CSR_REG_BIT_MACPHY_IRQ_EN;
+	val |= CSR_REG_BIT_MAC_IRQ_EN | CSR_REG_BIT_HPI_IRQ_EN;
+	val |= CSR_REG_BIT_MAC_MON | CSR_REG_BIT_MACPHY_MON |
+	       CSR_REG_BIT_RX_FIFO_MON;
+	shim_write_word(csr_addr, val);
+
+	dev_dbg(dev, "MAC-%d HFIFO IRQ enabled\n", mac_idx);
+}
+EXPORT_SYMBOL_GPL(hfifo_irq_enable);
+
+/**
+ * hfifo_irq_disable - Disables HFIFO IRQ for the given mac
+ * @mac_idx: MAC index
+ */
+void hfifo_irq_disable(int mac_idx)
+{
+	struct device *dev = shim_get_dev();
+
+	if (!dev) {
+		pr_err("%s: SHIM device not initialized\n", __func__);
+		return;
+	}
+
+	if (!shim_mac_idx_valid(mac_idx)) {
+		dev_err(dev, "%s: invalid mac_idx %d\n", __func__, mac_idx);
+		return;
+	}
+
+	hfifo_irq_set_csr_val(mac_idx, false);
+	dev_dbg(dev, "MAC-%d HFIFO IRQ disabled\n", mac_idx);
+}
+EXPORT_SYMBOL_GPL(hfifo_irq_disable);
+
+/**
  * shim_mac_disable_all_irq - Disables all registered mac's IRQs
  *
  * This is typically called during driver unload or suspend.
@@ -216,6 +307,39 @@ static int shim_irq_ack(int mac_id)
 	return 0;
 }
 
+static int hfifo_irq_ack(int mac_id)
+{
+	const u32 csr_mon_mask = CSR_REG_BIT_MAC_MON | CSR_REG_BIT_MACPHY_MON |
+				 CSR_REG_BIT_RX_FIFO_MON;
+	u32 csr_val, mon_val, csr_addr, mon_addr;
+	bool ours = false;
+
+	if (!shim_get_dev() || !shim_mac_idx_valid(mac_id))
+		return 1;
+
+	csr_addr = SHIM_MAC_IRQ_CSR + (mac_id * SHIM_MAC_REG_ADDR_SIZE);
+	mon_addr = RX_PACKET_FIFO_0;
+
+	mon_val = shim_read_word(mon_addr);
+	csr_val = shim_read_word(csr_addr);
+
+	ours = !!(mon_val & (BIT(RX_FIFO_OVF_MON) | BIT(RX_FIFO_DAV_MON)) ||
+		  (csr_val & CSR_REG_BIT_RX_FIFO_MON));
+
+	if (mon_val & (BIT(RX_FIFO_OVF_MON) | BIT(RX_FIFO_DAV_MON))) {
+		mon_val |= BIT(RX_FIFO_OVF_MON) | BIT(RX_FIFO_DAV_MON);
+		mon_val &= ~BIT(RX_FIFO_RST);
+		shim_write_word(mon_addr, mon_val);
+	}
+
+	csr_val |= csr_mon_mask;
+	shim_write_word(csr_addr, csr_val);
+
+	shim_write_word(HPI_CSR, 0x1);
+
+	return ours ? 0 : 1;
+}
+
 /**
  * shim_phy_interrupt_handler - IRQ handler for given phy
  * @irq: IRQ number
@@ -272,6 +396,48 @@ irqreturn_t shim_phy_interrupt_handler(int irq, void *data)
 				     irq, mac_id);
 		return IRQ_NONE;
 	}
+
+	return IRQ_HANDLED;
+}
+
+/**
+ * hfifo_phy_interrupt_handler - IRQ handler for given HFIFO MAC
+ * @irq: IRQ number
+ * @data: Pointer to mac_phy structure
+ *
+ * Handle the interrupt and schedule HFIFO NAPI
+ *
+ * Return: IRQ_HANDLED or IRQ_NONE
+ */
+irqreturn_t hfifo_phy_interrupt_handler(int irq, void *data)
+{
+	struct hfifo_priv *hpriv = data;
+	struct device *dev = shim_get_dev();
+	struct hfifo_data *hdata;
+	int mac_id;
+
+	if (!hpriv || !hpriv->data || !dev)
+		return IRQ_NONE;
+
+	hdata = hpriv->data;
+	mac_id = hdata->mac_idx;
+
+	if (!shim_mac_idx_valid(mac_id)) {
+		dev_err_ratelimited(dev, "IRQ %d: Invalid MAC index %d\n", irq,
+				    mac_id);
+		return IRQ_NONE;
+	}
+
+	if (hfifo_irq_ack(mac_id))
+		return IRQ_HANDLED;
+
+	hfifo_irq_disable(mac_id);
+	if (likely(napi_schedule_prep(&hdata->napi_hfifo_rx)))
+		__napi_schedule(&hdata->napi_hfifo_rx);
+	else
+		dev_err_ratelimited(
+			dev, "MAC-%d: failed to schedule HFIFO RX NAPI\n",
+			mac_id);
 
 	return IRQ_HANDLED;
 }
