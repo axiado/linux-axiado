@@ -87,4 +87,10 @@ void shim_mac_disable(int mac_idx);
 
 bool is_rx_local_fault(u8 mac_idx);
 
+void hfifo_irq_enable(int mac_idx);
+void hfifo_irq_disable(int mac_idx);
+int hfifo_packet_tx(u8 *buf, u32 len);
+int hfifo_packet_rx(u8 *buf, u32 buf_len, u8 mac_idx);
+int hfifo_rx_pkt_len(u8 mac_idx);
+void hfifo_reset_rx(u8 mac_idx);
 #endif /* _SHIM_EIP_COMMON_H_ */

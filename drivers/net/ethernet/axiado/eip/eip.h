@@ -200,8 +200,8 @@ struct eiphdr {
 #define EIP_STATS_COUNT ARRAY_SIZE(eip_stats)
 /* ethtool statistics -- END */
 
-extern int mac_phy_addr_rd(int app_id, u32 *mac_0, u32 *mac_1);
-extern int mac_phy_addr_wr(int app_id, u32 mac_0, u32 mac_1);
+extern int mac_addr_app_id_rd(int app_id, u32 *mac_0, u32 *mac_1);
+extern int mac_addr_app_id_wr(int app_id, u32 mac_0, u32 mac_1);
 void mac_update_promisc(int app_id, bool promisc);
 u8 get_netdev_interfaces(struct hcp_device *hcp, u8 *ndevs);
 

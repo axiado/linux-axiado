@@ -99,5 +99,6 @@ u32 rxaui_read_phy_word(u32 offset);
 
 /* Interrupt Handling */
 irqreturn_t shim_phy_interrupt_handler(int irq, void *data);
+irqreturn_t hfifo_phy_interrupt_handler(int irq, void *data);
 
 #endif /* _SHIM_PLATFORM_H_ */

@@ -22,6 +22,7 @@
 #include <linux/phy.h>
 #include <linux/platform_device.h>
 #include <linux/types.h>
+#include <asm/unaligned.h>
 
 #include "mac_config.h"
 #include "phy_interrupt.h"
@@ -287,7 +288,7 @@ static int shim_parse_mac_node(struct device *dev, struct device_node *child,
 
 /**
  * shim_parse_mac_config - Parse all MAC child nodes from Device Tree
- * @pdev: Platform device
+ * @hcp: HCP device structure
  * @shim: Shim admin structure
  * @phy_mask: Bitmask of MACs with external PHYs
  *
@@ -295,9 +296,10 @@ static int shim_parse_mac_node(struct device *dev, struct device_node *child,
  *
  * Return: 0 on success, negative on error
  */
-static int shim_parse_mac_config(struct platform_device *pdev,
+static int shim_parse_mac_config(struct hcp_device *hcp,
 				 struct shim_mem_admin *shim, u32 *phy_mask)
 {
+	struct platform_device *pdev = hcp->pdev;
 	struct device *dev = &pdev->dev;
 	struct device_node *child;
 	u32 mac_idx;
@@ -307,7 +309,8 @@ static int shim_parse_mac_config(struct platform_device *pdev,
 
 	for_each_child_of_node(dev->of_node, child) {
 		/* Skip the MDIO node */
-		if (of_node_name_eq(child, "mdio"))
+		if (of_node_name_eq(child, "mdio") ||
+		    of_node_name_eq(child, "hfifo"))
 			continue;
 
 		/* Get MAC index from 'reg' property */
@@ -333,6 +336,7 @@ static int shim_parse_mac_config(struct platform_device *pdev,
 				 mac_idx, ret);
 			/* Continue parsing other MACs */
 		}
+
 	}
 
 	return 0;
@@ -475,6 +479,8 @@ static int shim_register_mac_interrupts(struct hcp_device *hcp,
 					u32 phy_mask)
 {
 	struct device *dev = hcp->dev;
+	irq_handler_t irq_handler;
+	void *irq_cookie;
 	u32 mac_idx;
 	int ret, irq;
 
@@ -488,7 +494,7 @@ static int shim_register_mac_interrupts(struct hcp_device *hcp,
 			continue;
 		}
 
-		if (!(phy_mask & BIT(mac_idx))) {
+		if (!hcp->hfifo_mode && !(phy_mask & BIT(mac_idx))) {
 			dev_dbg(dev,
 				"MAC-%d: no phy-handle in DT, skipping IRQ setup\n",
 				mac_idx);
@@ -513,9 +519,15 @@ static int shim_register_mac_interrupts(struct hcp_device *hcp,
 			continue;
 		}
 
-		ret = request_irq(irq, shim_phy_interrupt_handler, IRQF_SHARED,
-				  shim->mii_irq_name[mac_idx],
-				  &shim->mac_cfg[mac_idx]);
+		if (hcp->hfifo_mode) {
+			irq_handler = hfifo_phy_interrupt_handler;
+			irq_cookie = hcp->hfifo_priv;
+		} else {
+			irq_handler = shim_phy_interrupt_handler;
+			irq_cookie = &shim->mac_cfg[mac_idx];
+		}
+		ret = request_irq(irq, irq_handler, IRQF_SHARED,
+				  shim->mii_irq_name[mac_idx], irq_cookie);
 		if (ret) {
 			dev_err(dev,
 				"Failed to request IRQ %d for MAC-%d: %d\n",
@@ -525,8 +537,8 @@ static int shim_register_mac_interrupts(struct hcp_device *hcp,
 			continue;
 		}
 
-		/* Enable hardware interrupt bits */
-		shim_irq_enable(mac_idx);
+		if (!hcp->hfifo_mode)
+			shim_irq_enable(mac_idx);
 
 		dev_info(dev, "Registered IRQ %d (%s) for MAC-%u\n",
 			 shim->mac_cfg[mac_idx].mac_irq,
@@ -553,6 +565,7 @@ int shim_subsystem_init(struct hcp_device *hcp)
 {
 	struct shim_mem_admin *shim = &shim_admin;
 	struct device *dev = hcp->dev;
+	struct hfifo_priv *hpriv;
 	u32 phy_mask = 0;
 	int ret;
 
@@ -567,7 +580,7 @@ int shim_subsystem_init(struct hcp_device *hcp)
 		return ret;
 
 	/* Parse MAC configuration from Device Tree */
-	ret = shim_parse_mac_config(hcp->pdev, shim, &phy_mask);
+	ret = shim_parse_mac_config(hcp, shim, &phy_mask);
 	if (ret) {
 		dev_err(dev, "Failed to parse MAC configuration: %d\n", ret);
 		return ret;
@@ -590,14 +603,27 @@ int shim_subsystem_init(struct hcp_device *hcp)
 		goto init_failed;
 	}
 
-	if (phy_mask) {
-		/* Register MDIO bus */
-		ret = shim_register_mdio_bus(hcp, shim, phy_mask);
-		if (ret)
+	if (hcp->hfifo_mode) {
+		hpriv = hcp->hfifo_priv;
+		if (!shim->mac_cfg[hpriv->mac_idx].enabled) {
+			dev_err(dev, "HOST FIFO MAC-%d not enabled\n", hpriv->mac_idx);
+			ret = -EINVAL;
 			goto init_failed;
+		}
+		port_set_hfifo_mode(dev, hpriv->mac_idx);
+		shim->mac_cfg[hpriv->mac_idx].mac_irq =
+			hcp->mac_irqs[hpriv->mac_idx];
 	} else {
-		dev_info(dev,
-			 "No external PHYs detected, skipping MDIO bus registration\n");
+		if (phy_mask) {
+			/* Register MDIO bus */
+			ret = shim_register_mdio_bus(hcp, shim, phy_mask);
+			if (ret)
+				goto init_failed;
+		} else {
+			dev_info(
+				dev,
+				"No external PHYs detected, skipping MDIO bus registration\n");
+		}
 	}
 
 	/* Register MAC interrupt handlers only for MACs with phy-handle */
@@ -636,7 +662,6 @@ void shim_subsystem_exit(struct hcp_device *hcp)
 		return;
 
 	/* Disable all MAC interrupts at the HW level.
-	 * devm_request_irq() handles freeing and unregistering.
 	 * synchronize_irq() is called inside shim_mac_disable_all_irq()
 	 * to ensure no handlers are running.
 	 */
@@ -775,3 +800,125 @@ u32 rxaui_read_phy_word(u32 offset)
 {
 	return shim_read_phy_word(RXAUI_BASE + offset);
 }
+
+/**
+ * hfifo_packet_tx - Xmit the buffer using Host FIFO
+ * @buff: data buffer to transmit
+ * @len: length of buffer
+ * Return: 0 on success and < 0 on failure
+ */
+int hfifo_packet_tx(u8 *buf, u32 len)
+{
+	void __iomem *base = shim_get_virt_base_addr();
+	void __iomem *fifo0 = base + TX_PACKET_FIFO_0;
+	void __iomem *fifo1 = base + TX_PACKET_FIFO_1;
+	void __iomem *wdata = base + TX_PACKET_FIFO_WDATA;
+	u32 nwords = DIV_ROUND_UP(len, 4);
+	u32 val, i;
+	int ret;
+
+	/* Reset TX FIFO before each packet (HW workaround for stale EOP) */
+	iowrite32(ioread32(fifo0) | BIT(TX_FIFO_RST), fifo0);
+
+	/* Wait for FIFO ready after reset */
+	ret = readl_poll_timeout(fifo0, val, val & BIT(TX_FIFO_RDY), 1, 100);
+	if (ret) {
+		pr_err_ratelimited("Timedout for TX_FIFO_RDY\n");
+		return ret;
+	}
+
+	/* Mark start of packet (SOP/EOP/MOD are the only fields in FIFO_1) */
+	iowrite32(BIT(TX_FIFO_SOP), fifo1);
+
+	/* Burst-write packet data to FIFO */
+	for (i = 0; i < nwords; i++, buf += 4)
+		iowrite32(get_unaligned((u32 *)buf), wdata);
+
+	/* Mark end of packet with mod field (valid bytes in last word) */
+	iowrite32(BIT(TX_FIFO_EOP) | ((len & 0x3) << TX_FIFO_MOD), fifo1);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(hfifo_packet_tx);
+
+/**
+ * hfifo_reset_rx - Reset the Rx FIFO Regs and MAC-port
+ * @mac_idx:  mac index
+ */
+void hfifo_reset_rx(u8 mac_idx)
+{
+	void __iomem *fifo0 = shim_get_virt_base_addr() + RX_PACKET_FIFO_0;
+	u32 val;
+	u8 port;
+
+	if (!mac_idx)
+		port = 4;
+	else
+		port = mac_idx - 1;
+
+	val = ioread32(fifo0);
+	/* Clear stale port-select bits (6:4) before programming the new port */
+	val &= ~GENMASK(6, 4);
+	/* W1C: clear OVF/DAV monitor; W1TRG: trigger FIFO reset */
+	val |= BIT(RX_FIFO_OVF_MON) | BIT(RX_FIFO_DAV_MON) | BIT(RX_FIFO_RST);
+	val |= port << RX_FIFO_SEL;
+	iowrite32(val, fifo0);
+}
+EXPORT_SYMBOL_GPL(hfifo_reset_rx);
+
+/**
+ * hfifo_rx_pkt_len - Check and get the available packet length
+ * @mac_idx:  mac index
+ * @Return: 0 on no packet, < 0 on buff overflow, > 0 - curr packet len
+ */
+int hfifo_rx_pkt_len(u8 mac_idx)
+{
+	void __iomem *base = shim_get_virt_base_addr();
+	u32 val, len, mod;
+	int ret = -1;
+
+	val = ioread32(base + RX_PACKET_FIFO_0);
+	if (likely(val & BIT(RX_FIFO_DAV))) {
+		val = ioread32(base + RX_PACKET_FIFO_1);
+		if (val) {
+			len = (val >> RX_FIFO_FRMLEN) & GENMASK(15, 0);
+			mod = (val >> RX_FIFO_MOD) & GENMASK(1, 0);
+			ret = len * 4 - ((4 - mod) % 4);
+		}
+	} else {
+		if (val & (BIT(RX_FIFO_OVF) | BIT(RX_FIFO_OVF_MON) |
+			   BIT(RX_FIFO_FULL)))
+			ret = -1;
+		else
+			ret = 0;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(hfifo_rx_pkt_len);
+
+/**
+ * hfifo_packet_rx - Dequeue a single packet from FIFO
+ * @buf: buffer to store the dequeued data
+ * @buf_len:  lenght of data buffer
+ * @mac_idx:  mac index
+ * @Return: buffere length dequeued
+ */
+int hfifo_packet_rx(u8 *buf, u32 buf_len, u8 mac_idx)
+{
+	void __iomem *base = shim_get_virt_base_addr();
+	void __iomem *rdata = base + RX_PACKET_FIFO_RDATA;
+	u32 nwords = DIV_ROUND_UP(buf_len, 4);
+	u32 i;
+
+	for (i = 0; i < nwords; i++, buf += 4)
+		put_unaligned(ioread32(rdata), (u32 *)buf);
+
+	/* dummy read RX_FIFO_FRMSTAT for MAC RX Frame Status */
+	ioread32(base + RX_PACKET_FIFO_2);
+	/* advance FIFO to next start-of-packet */
+	iowrite32(BIT(RX_FIFO_EOP), base + RX_PACKET_FIFO_1);
+
+	return buf_len;
+}
+EXPORT_SYMBOL_GPL(hfifo_packet_rx);

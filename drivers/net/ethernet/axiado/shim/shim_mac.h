@@ -108,5 +108,6 @@ enum AX_SHIM_STATUS {
 
 /* Prototypes */
 enum AX_SHIM_STATUS shim_mac_init(struct device *dev);
+void port_set_hfifo_mode(struct device *dev, u8 mac_idx);
 
 #endif /* _SHIM_MAC_H_ */
