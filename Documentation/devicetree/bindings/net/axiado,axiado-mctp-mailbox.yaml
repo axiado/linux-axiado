@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/net/axiado,axiado-mctp-mailbox.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado MCTP over Mailbox Transport
+
+maintainers:
+  - Sammai Chakravarthy <schakravarthy@axiado.com>
+  - Sridhar Pothuganti <spothuganti@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description:
+  MCTP transport driver for Axiado AX3005 SoC. Packets are
+  framed with a 16-byte firmware header (ax_ipc_mb_msg_t:
+  len, type, priority, flag - each a 32-bit little-endian
+  word) followed by the raw MCTP payload. The mailbox FIFO
+  is fixed at 252 bytes, yielding a maximum MCTP payload of
+  236 bytes, which satisfies the DMTF DSP0236 Section 8.3
+  minimum MTU of 68 bytes.
+
+properties:
+  compatible:
+    const: axiado,ax3005-mctp-mailbox
+
+  mboxes:
+    description:
+      Phandle and channel index of the mailbox channel used for MCTP
+      message transport.
+    maxItems: 2
+
+  mbox-names:
+    description:
+      Name of the mailbox channel used for MCTP transport.
+    items:
+      - const: tx
+      - const: rx
+
+  status:
+    description:
+      Standard device status property.
+
+required:
+  - compatible
+  - mboxes
+  - mbox-names
+
+additionalProperties: false
+
+examples:
+  - |
+    mctp-mailbox {
+        compatible = "axiado,axiado-mctp-mailbox";
+        mboxes = <&mailbox0 0>,
+                 <&mailbox0 8>;
+        mbox-names = "tx", "rx";
+    };
