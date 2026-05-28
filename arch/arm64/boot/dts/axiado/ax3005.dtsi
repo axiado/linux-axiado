@@ -217,6 +217,14 @@
 			#mbox-cells = <1>;
 		};
 
+		mctp_mailbox0: mctp-mailbox {
+			compatible = "axiado,ax3005-mctp-mailbox";
+			mboxes = <&mailbox0 0>, /* TX channel */
+				 <&mailbox0 8>; /* RX channel */
+			mbox-names = "tx", "rx";
+			status = "okay";
+		};
+
 		/* GPIO Controller banks 0 - 7 */
 		gpio0: gpio-controller@33000000 {
 			compatible = "axiado,ax3000-gpio";
