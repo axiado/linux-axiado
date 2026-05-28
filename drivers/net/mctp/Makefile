@@ -3,3 +3,4 @@ obj-$(CONFIG_MCTP_TRANSPORT_I2C) += mctp-i2c.o
 obj-$(CONFIG_MCTP_TRANSPORT_I3C) += mctp-i3c.o
 obj-$(CONFIG_MCTP_TRANSPORT_USB) += mctp-usb.o
 obj-$(CONFIG_MCTP_TRANSPORT_SPI) += mctp-spi.o
+obj-$(CONFIG_AXIADO_MCTP_MAILBOX) += axiado-mctp-mailbox.o

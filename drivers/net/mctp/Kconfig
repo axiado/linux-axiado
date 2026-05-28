@@ -1,4 +1,3 @@
-
 if MCTP
 
 menu "MCTP Device Drivers"
@@ -56,6 +55,16 @@ config MCTP_TRANSPORT_SPI
 	tristate "MCTP Over SPI transport"
 	help
 	  This is in Kernel mode Mctp Over Spi Driver.
+
+config AXIADO_MCTP_MAILBOX
+	tristate "Axiado MCTP over mailbox transport"
+	depends on MAILBOX
+	help
+	  MCTP transport driver for Axiado SoC platforms that use the
+	  Linux mailbox framework to exchange MCTP messages with a
+	  co-processor. A platform device node with compatible string
+	  "axiado,axiado-mctp-mailbox" and a named mailbox channel
+	  is required.
 
 endmenu
 
