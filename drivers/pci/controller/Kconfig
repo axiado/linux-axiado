@@ -345,6 +345,7 @@ config PCIE_XILINX_CPM
 config PCIE_AXIADO
 	bool "Axiado PCIe Controller"
 	depends on PCI
+	depends on PCI_MSI
 	depends on ARCH_AXIADO && (OF || COMPILE_TEST)
 	help
 	  Say Y if you want PCIe Controller Support on Axiado SoCs.
