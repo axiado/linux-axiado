@@ -52,6 +52,11 @@ config MCTP_TRANSPORT_USB
 	  MCTP-over-USB interfaces are peer-to-peer, so each interface
 	  represents a physical connection to one remote MCTP endpoint.
 
+config MCTP_TRANSPORT_SPI
+	tristate "MCTP Over SPI transport"
+	help
+	  This is in Kernel mode Mctp Over Spi Driver.
+
 endmenu
 
 endif
