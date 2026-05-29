@@ -104,7 +104,12 @@
                         no-map;
                 };
 	};
-	
+
+	display-subsystem {
+		compatible = "axiado,display-subsystem";
+		ports = <&disp_out>;
+	};
+
 	timer:timer {
 		compatible = "arm,armv8-timer";
 		interrupt-parent = <&gic500>;
@@ -821,6 +826,47 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "disabled";
+		};
+
+		disp_ctrl: disp_ctrl@40c00000 {
+			compatible = "axiado,drm-db9000";
+			reg = <0x0 0x40c00000 0x0 0x1000>;
+			memory-region = <&pci_ep_ctrl>;
+			interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_mali &clk_pclk>;
+			clock-names = "clk_mali", "clk_pclk";
+			bits-per-pixel = <32>;
+			bus-width = <24>;
+			paddr-disp = <0x8c000000>;
+			status = "disabled";
+			disp_out: port {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				disp_out_hdmi: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&hdmi_in_disp>;
+				};
+			};
+		};
+
+		hdmi: hdmi@40c11000 {
+			compatible ="axiado,ax3000-hdmi";
+			reg = <0x00 0x40c11000 0x00 0x4000>;
+			memory-region = <&pci_ep_ctrl>;
+			interrupts = <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH>;
+			clocks =  <&clk_mali>, <&clk_pclk>;
+			clock-names = "clk_mali", "clk_pclk";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+			hdmi_in: port@0 {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				hdmi_in_disp: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&disp_out_hdmi>;
+				};
+			};
 		};
 
 		pcie_x1: pcie@45200000 {
