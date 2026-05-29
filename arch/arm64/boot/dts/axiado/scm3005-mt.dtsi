@@ -337,3 +337,11 @@
 	mac = <4>;
 	status = "okay";
 };
+
+&hdmi {
+	status = "okay";
+};
+
+&disp_ctrl {
+	status = "okay";
+};
