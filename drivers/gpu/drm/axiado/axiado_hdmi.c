@@ -803,7 +803,7 @@ static int axiado_hdmi_bind(struct device *dev, struct device *master, void *dat
 		return -EINVAL;
 	}
 
-	if (of_address_to_resource(disp_node_entry, 1, &res)) {
+	if (of_address_to_resource(disp_node_entry, 0, &res)) {
 		pr_err("%s: Cannot get memory resource from device tree\n",
 		       __func__);
 		return -EINVAL;
