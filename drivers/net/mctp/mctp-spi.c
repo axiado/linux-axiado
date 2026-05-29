@@ -270,7 +270,7 @@ static irqreturn_t mctp_pkg_rec_wake(int irq, void *data)
 }
 
 ssize_t spi_raw_transfer(struct spi_device *spi, const char *txbuf, size_t txlen,
-								const char *rxbuf, size_t rxlen, bool cs_change)
+								char *rxbuf, size_t rxlen, bool cs_change)
 {
 	ssize_t	status;
 	// unsigned long missing; unused variable
@@ -314,7 +314,7 @@ static bool is_skb_queue_empty(struct mctp_spi *midev)
 static int mctp_spi_tx_thread(void *data)
 {
 	struct mctp_spi *midev = data;
-	struct sk_buff *skb;
+	struct sk_buff *skb = NULL;
 	unsigned long flags;
 	unsigned char txbuf[BUFSIZE];
 	bool gpio_wake = false;
@@ -344,6 +344,7 @@ static int mctp_spi_tx_thread(void *data)
 			else
 				midev->ndev->stats.rx_dropped++;
 			kfree_skb(skb);
+			skb = NULL;
 			while (midev->ap->msgs_available > 0) {
 				status = mctp_spi_rx(midev);
 				if (status == ERR_SPI_RX_NO_DATA)
