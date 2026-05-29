@@ -636,7 +636,7 @@ static int axiado_db9000_bind(struct device *dev, struct device *master, void *d
 		return -EINVAL;
 	}
 
-	if (of_address_to_resource(disp_node_entry, 1, &res)) {
+	if (of_address_to_resource(disp_node_entry, 0, &res)) {
 		dev_err(db9000->dev, "Cannot get memory resource from device tree\n");
 		return -EINVAL;
 	}
