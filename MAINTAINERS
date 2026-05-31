@@ -3657,14 +3657,12 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/net/axiado,ax3000-hcp.yaml
 F:	drivers/net/ethernet/axiado/
 
-AXIADO IPC DRIVER
-M:	Adarsh Kumar <adarsh.kumar@axiado.com>
-M:	Sridhar Pothuganti <spothuganti@axiado.com>
-M:	Prasad Bolisetty <pbolisetty@axiado.com>
-S:	Maintained
-F:	Documentation/devicetree/bindings/misc/axiado,ax-ipc.yaml
-F:	drivers/misc/axiado/axiado-ipc/ax-ipc.c
-F:	drivers/misc/axiado/axiado-ipc/ax-ipc.h
+AXIADO MAILBOX DRIVER
+M:      Krishnakumar kesavan <kkesavan@axiado.com>
+M:      Prasad Bolisetty <pbolisetty@axiado.com>
+S:      Maintained
+F:      drivers/mailbox/axiado-mailbox.c
+F:      Documentation/devicetree/bindings/mailbox/axiado,axiado-mailbox.yaml
 
 AXIADO SYSUTILS DRIVER
 M:	Sammai Chakravarthy <schakravarthy@axiado.com>
