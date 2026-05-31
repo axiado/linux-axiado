@@ -295,4 +295,13 @@ config QCOM_IPCC
 	  acts as an interrupt controller for receiving interrupts from clients.
 	  Say Y here if you want to build this driver.
 
+config AX3005_MAILBOX
+	tristate "Axiado Mailbox Driver"
+	depends on OF && OF_RESERVED_MEM
+	help
+	  Enable support for the Axiado Mailbox interface. This driver provides
+	  a communication and control channel between the host CPU and the
+	  co-processor present on Axiado SoCs.
+	  If unsure, say N.
+
 endif
