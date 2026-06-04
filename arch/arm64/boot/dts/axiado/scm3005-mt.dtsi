@@ -335,7 +335,6 @@
 
 &hfifo {
 	mac = <4>;
-	status = "okay";
 };
 
 &hdmi {
