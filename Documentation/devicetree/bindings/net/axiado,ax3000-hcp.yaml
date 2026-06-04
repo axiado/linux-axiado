@@ -7,9 +7,9 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 title: Axiado AX3000 HCP (Header and Crypto Processing Engine)
 
 maintainers:
-  - Satya Jena <sjena@axiado.com>
   - Mirza Aijaz Baig <mbaig@axiado.com>
-  - Makarand Pawagi <mpawagi@axiado.com>
+  - Krishnakumar Kesavan <kkesavan@axiado.com>
+  - Satya Jena <sjena@axiado.com>
   - Prasad Bolisetty <pbolisetty@axiado.com>
 
 description: |
@@ -17,11 +17,10 @@ description: |
   the Axiado AX3000 SoC. It integrates:
   - 5 Ethernet MACs (one 10Gbps RXAUI, four 1Gbps SGMII/RMII)
   - SHIM packet interface with FIFO-based packet processing
-  - Host FIFO packet path to bypass EIP completely
-  - Rambus EIP-197 hardware crypto accelerator
+  - Host FIFO packet transport
   - MDIO bus controller for PHY management
 
-  The driver creates network devices (ethX) based on enabled MAC nodes.
+  The driver creates a network device based on enabled MAC nodes.
 
 properties:
   compatible:
@@ -29,13 +28,11 @@ properties:
 
   reg:
     items:
-      - description: EIP-197 crypto engine registers
       - description: SHIM packet interface registers
       - description: PHY CSR (Control and Status Registers)
 
   reg-names:
     items:
-      - const: eip197
       - const: shim
       - const: phy-csr
 
@@ -44,53 +41,19 @@ properties:
       Interrupt lines for HCP subsystem. The list is positional and must
       be in the exact order shown below (and match interrupt-names).
     items:
-      - description: EIP-197 crypto engine
-      - description: EIP Ring interface 0
-      - description: EIP Ring interface 1
-      - description: EIP Ring interface 2
-      - description: EIP Ring interface 3
       - description: MAC interface 0
       - description: MAC interface 1
       - description: MAC interface 2
       - description: MAC interface 3
       - description: MAC interface 4
-      - description: EIP Ring interface 4
-      - description: EIP Ring interface 5
-      - description: EIP Ring interface 6
-      - description: EIP Ring interface 7
-      - description: EIP Ring interface 8
-      - description: EIP Ring interface 9
-      - description: EIP Ring interface 10
-      - description: EIP Ring interface 11
 
   interrupt-names:
     items:
-      - const: eip197
-      - const: eip_ring0
-      - const: eip_ring1
-      - const: eip_ring2
-      - const: eip_ring3
       - const: xgmii
       - const: gmii0
       - const: gmii1
       - const: gmii2
       - const: gmii3
-      - const: eip_ring4
-      - const: eip_ring5
-      - const: eip_ring6
-      - const: eip_ring7
-      - const: eip_ring8
-      - const: eip_ring9
-      - const: eip_ring10
-      - const: eip_ring11
-
-  clocks:
-    maxItems: 1
-    description: Optional EIP-197 clock
-
-  clock-names:
-    items:
-      - const: eip197
 
   '#address-cells':
     const: 1
@@ -117,9 +80,8 @@ properties:
     type: object
     $ref: ethernet-controller.yaml#
     description: |
-      Alternate packet path to bypass EIP module completely. Host FIFO is used
-      for Tx/Rx packets. Host FIFO packet path requires a MAC port to be locked
-      as at a given time. Only one MAC port can be used with Host FIFO.
+      Host FIFO is used for Tx/Rx packets. Host FIFO packet path requires a MAC port
+      to be locked as at a given time. Only one MAC port can be used with Host FIFO.
 
     properties:
       compatible:
@@ -188,27 +150,17 @@ examples:
 
         hcp@83000000 {
             compatible = "axiado,ax3000-hcp";
-            reg = <0x83000000 0x100000>,  /* EIP-197: 1MB */
-                  <0x83100000 0x4000>,    /* SHIM: 16KB */
+            reg = <0x83100000 0x4000>,    /* SHIM: 16KB */
                   <0x87000000 0x50000>;   /* PHY CSR: 320KB */
-            reg-names = "eip197", "shim", "phy-csr";
+            reg-names = ""shim", "phy-csr";
 
             interrupt-parent = <&gic500>;
-            interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>,  /* EIP-197 */
-                     <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>,   /* Ring 0 */
-                     <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>,   /* Ring 1 */
-                     <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>,   /* Ring 2 */
-                     <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>,   /* Ring 3 */
-                     <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>,   /* MAC 0 */
+            interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>,   /* MAC 0 */
                      <GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>,   /* MAC 1 */
                      <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>,   /* MAC 2 */
                      <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>,   /* MAC 3 */
                      <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;   /* MAC 4 */
-            interrupt-names = "eip197", "ring0", "ring1", "ring2", "ring3",
-                              "mac0", "mac1", "mac2", "mac3", "mac4";
-
-            clocks = <&clk_eip197>;
-            clock-names = "eip197";
+            interrupt-names = "xgmii", "gmii0", "gmii1", "gmii2", "gmii3";
 
             #address-cells = <1>;
             #size-cells = <0>;
@@ -273,7 +225,6 @@ examples:
             hfifo: hfifo {
               compatible = "axiado,ax3000-hfifo";
               mac = <1>;
-              status = "disabled";
             };
         };
     };
