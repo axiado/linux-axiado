@@ -5,7 +5,7 @@
  * HCP (Header and Crypto Processing Engine) - Internal shared structures
  *
  * This header defines the unified data structures for the consolidated
- * HCP platform driver that integrates SHIM, MAC, PHY, and EIP-197 subsystems.
+ * HCP platform driver Host FIFO subsystem.
  */
 
 #ifndef _AXIADO_HFIFO_H_

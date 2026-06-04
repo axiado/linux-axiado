@@ -49,53 +49,6 @@
 #define MAC_XG_REVISION_VAL 0x10136
 #define MAC_XG_FLOW_VAL 0x00000000
 
-/* Config for Cmd Descriptor token */
-
-/* Set 1/0 for enabling/disabling for lookup mode.
- * If lookup is disabled, shim will use a static Transform Record.
- */
-#ifndef TRANSFORM_LOOKUP_ENABLE
-#define TRANSFORM_LOOKUP_ENABLE 1
-#endif
-
-/* Destination Interface to be used in static Transform Record.
- * If the value is more than 0, multi-interface support must be
- * enabled in EIP-DDK driver.
- */
-#ifndef DEST_IF_ID
-#define DEST_IF_ID 0
-#endif
-
-/* COMMAND TOKEN WORDS VALUE FOR CMD DESCRIPTOR
- * Refer Firmware Reference Manual of EIP - page_23
- */
-#define CMD_TOKEN_WORD_0_VAL 0xF0000000
-#ifndef CONFIG_ARCH_AX3005
-#define CMD_TOKEN_WORD_1_VAL 0x00200200
-#else
-#define CMD_TOKEN_WORD_1_VAL 0x00300200
-#endif
-
-/* TR Pointer (Low/High) for Lookup Mode */
-#define CMD_TOKEN_WORD_2_VAL 0xFFFFFFFC
-#define CMD_TOKEN_WORD_3_VAL 0xFFFFFFFF
-
-#define CMD_TOKEN_WORD_4_VAL 0x02800000
-#define CMD_TOKEN_WORD_5_VAL 0x00000e00
-#define CMD_TOKEN_WORD_6_VAL 0x00000000
-#define CMD_TOKEN_WORD_7_VAL 0x00000000
-#define CMD_TOKEN_WORD_8_VAL 0x00000000
-#define CMD_TOKEN_WORD_9_VAL 0x00000000
-#define CMD_TOKEN_WORD_10_VAL 0x00000000
-#define CMD_TOKEN_WORD_11_VAL 0x00000000
-
-/* * TDEST Mask Values */
-#define TDEST_MASK_VALUE_XG 0xFFFF0A00 /* 10G Port */
-#define TDEST_MASK_VALUE_1G_0 0xFFFF0200 /* 1G Port 0 */
-#define TDEST_MASK_VALUE_1G_1 0xFFFF0400 /* 1G Port 1 */
-#define TDEST_MASK_VALUE_1G_2 0xFFFF0600 /* 1G Port 2 */
-#define TDEST_MASK_VALUE_1G_3 0xFFFF0800 /* 1G Port 3 */
-
 /* Return status for shim functions.
  * Mapped to standard Linux error codes to facilitate future cleanup.
  */

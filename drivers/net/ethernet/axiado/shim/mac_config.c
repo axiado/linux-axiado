@@ -15,7 +15,7 @@
 #include <linux/types.h>
 
 #include "mac_config.h"
-#include "shim_eip_common.h"
+#include "shim_common.h"
 #include "shim_mac.h"
 #include "shim_platform.h"
 
@@ -565,9 +565,6 @@ bool shim_fifo_reset(u8 mac_idx)
 }
 EXPORT_SYMBOL_GPL(shim_fifo_reset);
 
-/**
- * shim_mac_soft_reset - Soft reset the particular MAC.
- */
 void shim_mac_soft_reset(u8 mac_idx)
 {
 	u32 port_ctrl = REG_XGE_PORT_CTRL + (mac_idx * 4);
