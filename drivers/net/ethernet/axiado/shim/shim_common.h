@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * shim_eip_common.h - Common definitions for the SHIM driver, including MAC offsets,
+ * shim_common.h - Common definitions for the SHIM driver, including MAC offsets,
  * board types, and the mac_phy configuration structure.
  *
  * Copyright (c) 2022-2026 Axiado Corporation
  */
 
-#ifndef _SHIM_EIP_COMMON_H_
-#define _SHIM_EIP_COMMON_H_
+#ifndef _SHIM_COMMON_H_
+#define _SHIM_COMMON_H_
 
 #include <linux/phy.h>
 #include <linux/types.h>
@@ -29,13 +29,6 @@ struct device;
 /* Total number of MACs supported */
 #define MAX_MAC_CNT 5
 #define MAC_10G_APPID 5
-
-/* EIP-197 ring interfaces (used by both HCP and EIP subsystems) */
-#ifndef CONFIG_ARCH_AX3005
-#define RING_INTERFACE_CNT 4
-#else
-#define RING_INTERFACE_CNT 12
-#endif
 
 /* Base offset for MAC registers (relative to SHIM base) */
 #define MAC_BASE_OFFSET 0x400
@@ -87,10 +80,12 @@ void shim_mac_disable(int mac_idx);
 
 bool is_rx_local_fault(u8 mac_idx);
 
+/* Host FIFO interface */
 void hfifo_irq_enable(int mac_idx);
 void hfifo_irq_disable(int mac_idx);
 int hfifo_packet_tx(u8 *buf, u32 len);
 int hfifo_packet_rx(u8 *buf, u32 buf_len, u8 mac_idx);
 int hfifo_rx_pkt_len(u8 mac_idx);
 void hfifo_reset_rx(u8 mac_idx);
-#endif /* _SHIM_EIP_COMMON_H_ */
+
+#endif /* _SHIM_COMMON_H_ */

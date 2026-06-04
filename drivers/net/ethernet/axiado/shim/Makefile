@@ -9,7 +9,6 @@ axiado_shim-y := \
 	mac_config.o \
 	phy_interrupt.o \
 	phy_mdio.o \
-	shim_eip_config.o \
 	shim_mac_init.o \
 	shim_platform.o
 

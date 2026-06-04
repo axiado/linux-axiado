@@ -16,7 +16,7 @@
 
 #include "mac_config.h"
 #include "phy_interrupt.h"
-#include "shim_eip_common.h"
+#include "shim_common.h"
 
 /* SHIM Register Offsets */
 

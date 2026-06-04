@@ -8,7 +8,7 @@ config NET_VENDOR_AXIADO
 	depends on ARM64 || COMPILE_TEST
 	help
 	  Enable drivers for Ethernet devices integrated in Axiado SoCs.
-	  This includes the HCP driver and optional IPsec offload support.
+	  This includes the HCP driver.
 	  Select this if you are running on an Axiado platform or want to
 	  build-test these drivers on ARM64.
 
@@ -23,77 +23,11 @@ config AXIADO_HCP
 	help
 	  Driver for the Axiado HCP subsystem including SHIM packet
 	  interface, five Ethernet MACs (4x1G + 1x10G), PHY/SerDes
-	  (SGMII and RXAUI), and EIP-197 crypto engine.
+	  (SGMII and RXAUI), and the Host FIFO network device.
 
 	  To compile this driver as a module, choose M here. The module
 	  will be called axiado_hcp.
 
 	  If unsure, say Y.
 
-choice
-	prompt "EIP-197 hardware configuration"
-	depends on AXIADO_HCP
-	default AXIADO_EIP197_HW_CONF_B
-	help
-	  Select the EIP-197 hardware configuration that matches your SoC
-	  integration. This controls the number of processing engines and
-	  affects the DDK sizing for rings and contexts.
-	  Pick the option documented for your platform.
-
-	  If unsure, pick the default for your platform.
-
-config AXIADO_EIP197_HW_CONF_B
-	bool "Config B (1 processing engine)"
-	help
-	  Select this for EIP-197 configuration B.
-	  Provides one processing engine.
-	  Use this when the SoC integration exposes a single PE.
-	  If unsure, check your platform documentation.
-
-config AXIADO_EIP197_HW_CONF_C
-	bool "Config C (2 processing engines)"
-	help
-	  Select this for EIP-197 configuration C.
-	  Provides two processing engines.
-	  Use this when the SoC integration exposes two PEs.
-	  If unsure, check your platform documentation.
-
-config AXIADO_EIP197_HW_CONF_D
-	bool "Config D (4 processing engines)"
-	help
-	  Select this for EIP-197 configuration D.
-	  Provides four processing engines.
-	  Use this when the SoC integration exposes four PEs.
-	  If unsure, check your platform documentation.
-
-config AXIADO_EIP197_HW_CONF_E
-	bool "Config E (8 processing engines)"
-	help
-	  Select this for EIP-197 configuration E.
-	  Provides eight processing engines.
-	  Use this when the SoC integration exposes eight PEs.
-	  If unsure, check your platform documentation.
-
-config AXIADO_EIP197_HW_CONF_F
-	bool "Config F (12 processing engines)"
-	help
-	  Select this for EIP-197 configuration F.
-	  Provides twelve processing engines.
-	  Use this when the SoC integration exposes twelve PEs.
-	  If unsure, check your platform documentation.
-
-endchoice
-
-config EIP_IPSEC_OFFLOAD
-	tristate "Axiado EIP-197 IPsec offload"
-	depends on XFRM
-	help
-	  Enable IPsec offload using the Axiado EIP-197 crypto engine.
-	  This hooks the Linux XFRM framework to offload SA processing to
-	  hardware.
-	  Requires compatible hardware configuration and firmware.
-
-	  If unsure, say N.
-
 endif # NET_VENDOR_AXIADO
-

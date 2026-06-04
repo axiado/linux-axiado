@@ -13,7 +13,7 @@
 #include <linux/device.h>
 #include <linux/types.h>
 
-#include "shim_eip_common.h"
+#include "shim_common.h"
 #include "shim_mac.h"
 
 /* Function Prototypes */

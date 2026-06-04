@@ -9,7 +9,7 @@
 #include <linux/netdevice.h>
 
 #include "hfifo.h"
-#include "shim_eip_common.h"
+#include "shim_common.h"
 #include "shim_platform.h"
 
 #define NETDEV_NAME "eth0"
@@ -307,9 +307,6 @@ void hfifo_subsystem_exit(struct hcp_device *hcp)
 {
 	struct hfifo_priv *hpriv = hcp->hfifo_priv;
 	struct hfifo_data *hdata = hpriv->data;
-
-	if (!hcp->hfifo_mode)
-		return;
 
 	unregister_netdev(hdata->ndev);
 	netif_napi_del(&hdata->napi_hfifo_rx);
