@@ -113,9 +113,9 @@
 			reg = <0x00 0x87900000 0x00 0x200000>; /* 2MB */
 			no-map;
 		};
-		rot_fwu: rot_fwu@96C20000 {
+		rot_fwu: rot_fwu@91800000 {
 			/* Reserved for ROT FWU scratch; ROT accesses directly, not used by Linux */
-			reg = <0x00 0x96C20000 0x00 0x4000000>; /* 64MB */
+			reg = <0x00 0x91800000 0x00 0x4400000>; /* 68MB */
 			no-map;
 		};
 	};
@@ -232,7 +232,7 @@
 			#mbox-cells = <1>;
 		};
 
-		mctp_mailbox0: mctp-mailbox {
+		mctp-mailbox {
 			compatible = "axiado,ax3005-mctp-mailbox";
 			memory-region = <&shm_ap_to_rot>, <&shm_rot_to_ap>;
 			mboxes = <&mailbox0 0>, /* TX channel */
