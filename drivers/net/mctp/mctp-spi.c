@@ -440,15 +440,16 @@ static int mctp_spi_probe(struct spi_device *spi)
 	init_waitqueue_head(&mctp_spi_dev->gpio_intr_wq);
 	mctp_spi_dev->gpio_intr_cond = 0;
 
+	spin_lock_init(&mctp_spi_dev->lock);
+	init_waitqueue_head(&mctp_spi_dev->main_thread_wq);
+	skb_queue_head_init(&mctp_spi_dev->tx_queue);
+
 	rc = request_irq(mctp_spi_dev->rx_alert_irq, mctp_pkg_rec_wake,
 			       IRQF_TRIGGER_FALLING, "mctp_spi_pkg_rec_wake", mctp_spi_dev);
 
 	if (rc < 0)
 		goto err_netdev;
 
-	spin_lock_init(&mctp_spi_dev->lock);
-	init_waitqueue_head(&mctp_spi_dev->main_thread_wq);
-	skb_queue_head_init(&mctp_spi_dev->tx_queue);
 	rc = mctp_register_netdev(ndev, NULL, MCTP_PHYS_BINDING_SERIAL);
 	if (rc)
 		goto err_netdev;
