@@ -269,7 +269,7 @@ static irqreturn_t mctp_pkg_rec_wake(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-ssize_t spi_raw_transfer(struct spi_device *spi, const char *txbuf, size_t txlen,
+static ssize_t spi_raw_transfer(struct spi_device *spi, const char *txbuf, size_t txlen,
 								char *rxbuf, size_t rxlen, bool cs_change)
 {
 	ssize_t	status;
