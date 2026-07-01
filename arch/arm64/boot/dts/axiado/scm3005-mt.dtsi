@@ -236,6 +236,14 @@
 	status = "okay";
 };
 
+&usb2_2 {
+	status = "okay";
+};
+
+&usb2_3 {
+	status = "okay";
+};
+
 &usb3_0 {
 	status = "okay";
 };
