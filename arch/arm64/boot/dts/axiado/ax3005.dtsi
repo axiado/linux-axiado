@@ -891,6 +891,22 @@
 			status = "disabled";
 		};
 
+		usb2_2: usb@41200000  {
+			compatible = "axiado,ax3000-udc";
+			reg = <0x00 0x41200000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		usb2_3: usb@41300000  {
+			compatible = "axiado,ax3000-udc";
+			reg = <0x00 0x41300000 0x00 0x100000>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 22 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
 		usb3_0: usb@41400000 {
 			compatible = "generic-xhci";
 			reg = <0x0 0x41400000 0x0 0x100000>;
