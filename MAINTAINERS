@@ -4161,6 +4161,15 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/sound/axentia,*
 F:	sound/soc/atmel/tse850-pcm5142.c
 
+AXIADO HCP NETWORK AND CRYPTO DRIVER
+M:	Mirza Aijaz Baig <mbaig@axiado.com>
+M:	Satya Jena <sjena@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/net/axiado,ax3005-hcp.yaml
+F:	drivers/net/ethernet/axiado/
+
 AXIS ARTPEC ARM64 SoC SUPPORT
 M:	Jesper Nilsson <jesper.nilsson@axis.com>
 M:	Lars Persson <lars.persson@axis.com>
