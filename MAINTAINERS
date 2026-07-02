@@ -20007,6 +20007,16 @@ L:	linux-amlogic@lists.infradead.org
 S:	Maintained
 F:	drivers/pci/controller/dwc/pci-meson.c
 
+AXIADO PCIE CONTROLLER DRIVER
+M:	Shubhangini <shubhangini@axiado.com>
+M:	Karthikeyan Mitran <kmitran@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-pci@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/pci/axiado,ax3000-pcie.yaml
+F:	drivers/pci/controller/plda/*axiado*
+F:	include/linux/soc/axiado/pcie-axiado.h
+
 PCIE DRIVER FOR AXIS ARTPEC
 M:	Jesper Nilsson <jesper.nilsson@axis.com>
 L:	linux-arm-kernel@axis.com
