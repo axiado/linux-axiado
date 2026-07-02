@@ -1,0 +1,26 @@
+config DRM_AXIADO
+        bool "HDMI specific extensions"
+        depends on DRM && OF
+        select DRM_CLIENT_SELECTION
+        select DRM_KMS_HELPER
+        select DRM_GEM_DMA_HELPER
+        help
+          Choose this option to enable support for the Axiado SoC
+          Display Subsystem DRM driver.
+
+          The Axiado SoC integrates a display pipeline consisting of
+          multiple hardware blocks connected via the standard
+          device-tree ports/endpoint graph bindings, including a
+          display controller, HDMI transmitter, and associated
+          clock and PHY resources.
+
+          This driver supports the SoC's integrated HDMI output as
+          well as display controllers exposed through the
+          display-subsystem container node, providing KMS/DRM
+          support for video output on Axiado-based platforms.
+
+          If you want to use the Axiado SoC integrated HDMI or
+          related display controllers under the Direct Rendering
+          Manager (DRM) framework, say Y or M here.
+
+          If unsure, say N.
