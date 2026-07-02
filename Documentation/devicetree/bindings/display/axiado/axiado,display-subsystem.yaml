@@ -19,8 +19,15 @@ properties:
   compatible:
     const: axiado,display-subsystem
 
+  ports:
+    $ref: /schemas/types.yaml#/definitions/phandle-array
+    description:
+      List of phandles to the output port nodes of the display pipeline
+      blocks tied together by this subsystem.
+
 required:
   - compatible
+  - ports
 
 additionalProperties: false
 
@@ -28,5 +35,6 @@ examples:
   - |
     display-subsystem {
         compatible = "axiado,display-subsystem";
+        ports = <&disp_out>;
     };
 ...
