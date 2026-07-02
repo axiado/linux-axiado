@@ -243,3 +243,7 @@
 &sgpio0 {
 	status = "okay";
 };
+
+&saradc {
+	status = "okay";
+};
