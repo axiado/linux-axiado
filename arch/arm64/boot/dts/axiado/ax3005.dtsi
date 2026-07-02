@@ -1206,5 +1206,149 @@
 			reg = <0x00 0x33381000 0x00  0x100>;
 			status = "disabled";
 		};
+
+		fan0: pwm-fan0@33001400 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 150 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33001400 0x00 0x400>;
+			pwms = <&pwm0 0 400>;
+			status = "disabled";
+		};
+
+		fan1: pwm-fan1@33001800 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 151 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33001800 0x00 0x400>;
+			pwms = <&pwm1 0 400>;
+			status = "disabled";
+		};
+
+		fan2: pwm-fan2@33081400 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 152 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33081400 0x00 0x400>;
+			pwms = <&pwm2 0 400>;
+			status = "disabled";
+		};
+
+		fan3: pwm-fan3@33081800 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 153 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33081800 0x00 0x400>;
+			pwms = <&pwm3 0 400>;
+			status = "disabled";
+		};
+
+		fan4: pwm-fan4@33101400 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 154 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33101400 0x00 0x400>;
+			pwms = <&pwm4 0 400>;
+			status = "disabled";
+		};
+
+		fan5: pwm-fan5@33101800 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 155 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33101800 0x00 0x400>;
+			pwms = <&pwm5 0 400>;
+			status = "disabled";
+		};
+
+		fan6: pwm-fan6@33181400 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 156 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33181400 0x00 0x400>;
+			pwms = <&pwm6 0 400>;
+			status = "disabled";
+		};
+
+		fan7: pwm-fan7@33181800 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 157 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33181800 0x00 0x400>;
+			pwms = <&pwm7 0 400>;
+			status = "disabled";
+		};
+
+		fan8: pwm-fan8@33201400 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 158 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33201400 0x00 0x400>;
+			pwms = <&pwm8 0 400>;
+			status = "disabled";
+		};
+
+		fan9: pwm-fan9@33201800 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 159 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33201800 0x00 0x400>;
+			pwms = <&pwm9 0 400>;
+			status = "disabled";
+		};
+
+		fan10: pwm-fan10@33281400 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 160 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33281400 0x00 0x400>;
+			pwms = <&pwm10 0 400>;
+			status = "disabled";
+		};
+
+		fan11: pwm-fan11@33281800 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 161 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33281800 0x00 0x400>;
+			pwms = <&pwm11 0 400>;
+			status = "disabled";
+		};
+
+		fan12: pwm-fan12@33301400 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 162 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33301400 0x00 0x400>;
+			pwms = <&pwm12 0 400>;
+			status = "disabled";
+		};
+
+		fan13: pwm-fan13@33301800 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 163 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33301800 0x00 0x400>;
+			pwms = <&pwm13 0 400>;
+			status = "disabled";
+		};
+
+		fan14: pwm-fan14@33381400 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 164 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33381400 0x00 0x400>;
+			pwms = <&pwm14 0 400>;
+			status = "disabled";
+		};
+
+		fan15: pwm-fan15@33381800 {
+			compatible = "axiado,ax3000-pwm-fan";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 165 IRQ_TYPE_LEVEL_HIGH>;
+			reg = <0x00 0x33381800 0x00 0x400>;
+			pwms = <&pwm15 0 400>;
+			status = "disabled";
+		};
 	};
 };
