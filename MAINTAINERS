@@ -4262,6 +4262,26 @@ S:	Maintained
 F:	drivers/net/mctp/axiado-mctp-mailbox.c
 F:	Documentation/devicetree/bindings/net/axiado,axiado-mctp-mailbox.yaml
 
+AXIADO USB DEVICE CONTROLLER DRIVER
+M:	Krutik Shah <krutikshah@axiado.com>
+M:	Akhila Kavi <akavi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-usb@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/usb/axiado,ax3000-udc.yaml
+F:	drivers/usb/gadget/udc/crg_udc.c
+F:	drivers/usb/gadget/udc/crg_udc.h
+
+AXIADO USB HID GADGET DRIVER
+M:	Krutik Shah <krutikshah@axiado.com>
+M:	Akhila Kavi <akavi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-input@vger.kernel.org
+L:	linux-usb@vger.kernel.org
+S:	Maintained
+F:	drivers/usb/gadget/function/f_hid_axiado.c
+F:	include/linux/hid.h
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
