@@ -117,6 +117,10 @@
 		};
 	};
 
+	display-subsystem {
+		compatible = "axiado,display-subsystem";
+	};
+
 	timer {
 		compatible = "arm,armv8-timer";
 		interrupt-parent = <&gic500>;
