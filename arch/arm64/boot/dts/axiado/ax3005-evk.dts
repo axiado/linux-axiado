@@ -535,3 +535,7 @@
 &fan15 {
 	status = "okay";
 };
+
+&disp_ctrl {
+status = "okay";
+};
