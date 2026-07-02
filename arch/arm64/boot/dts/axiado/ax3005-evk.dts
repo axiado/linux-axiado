@@ -325,3 +325,7 @@
 &usb3_1 {
 	status = "okay";
 };
+
+&sgpio0 {
+	status = "okay";
+};

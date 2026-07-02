@@ -839,5 +839,22 @@
 			interrupts = <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH>;
 			status = "disabled";
 		};
+
+		sgpio0: sgpio@33201c00 {
+			compatible = "axiado,sgpio";
+			reg = <0x0 0x33201c00 0x00 0x400>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 125 IRQ_TYPE_LEVEL_HIGH>;
+			design-variant = <512>;
+			/* Supports maximum of 128 pins */
+			ngpios = <128>;
+			/* SGPIO Clock Frequency 12 MHz */
+			bus-frequency = <12000000>;
+			apb-frequency = <100000000>;
+			dout-init = <0x00000000 0x00000000 0x00000000 0x00000000>;
+			status = "disabled";
+		};
 	};
 };
