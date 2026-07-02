@@ -153,6 +153,14 @@
 		};
 	};
 
+	vref_reg: vref-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vref";
+		regulator-min-microvolt = <1100000>;
+		regulator-max-microvolt = <1100000>;
+		regulator-always-on;
+	};
+
 	soc {
 		compatible = "simple-bus";
 		#address-cells = <2>;
@@ -1027,6 +1035,16 @@
 				compatible = "axiado,ax3005-hfifo";
 				mac = <1>;
 			};
+		};
+
+		saradc: saradc@331a0000 {
+			compatible = "axiado,ax3005-saradc";
+			reg = <0x0 0x331a0000 0x0 0x400>;
+			clocks = <&pclk>;
+			clock-names = "saradc";
+			vref-supply = <&vref_reg>;
+			#io-channel-cells = <1>;
+			status = "disabled";
 		};
 	};
 };
