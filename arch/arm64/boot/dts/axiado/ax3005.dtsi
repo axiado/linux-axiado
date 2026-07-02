@@ -956,5 +956,77 @@
 				ranges;
 			};
 		};
+
+		hcp@43000000 {
+			compatible = "axiado,ax3005-hcp";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			/*
+			 * Memory regions for the HCP subsystem:
+			 * - SHIM registers
+			 * - PHY CSR
+			 */
+			reg = <0x0 0x43100000 0x0 0x4000>,    /* SHIM regs (16KB) */
+			      <0x0 0x47000000 0x0 0x50000>;   /* PHY CSR (320KB) */
+			reg-names = "shim", "phy-csr";
+
+			/*
+			 * Interrupts for HCP:
+			 * IRQ 0-4: MACs 0-4
+			 */
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>,  /* MAC 0 (XGMII) */
+				     <GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>,  /* MAC 1 (GMII0) */
+				     <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>,  /* MAC 2 (GMII1) */
+				     <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>,  /* MAC 3 (GMII2) */
+				     <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;  /* MAC 4 (GMII3) */
+			interrupt-names = "xgmii", "gmii0", "gmii1", "gmii2", "gmii3";
+
+			mac0: mac@0 {
+				reg = <0>;
+				compatible = "axiado,ax3005-mac";
+				phy-mode = "rxaui";
+				status = "disabled";
+			};
+
+			mac1: mac@1 {
+				reg = <1>;
+				compatible = "axiado,ax3005-mac";
+				phy-mode = "sgmii";
+				status = "disabled";
+			};
+
+			mac2: mac@2 {
+				reg = <2>;
+				compatible = "axiado,ax3005-mac";
+				phy-mode = "sgmii";
+				status = "disabled";
+			};
+
+			mac3: mac@3 {
+				reg = <3>;
+				compatible = "axiado,ax3005-mac";
+				phy-mode = "sgmii";
+				status = "disabled";
+			};
+
+			mac4: mac@4 {
+				reg = <4>;
+				compatible = "axiado,ax3005-mac";
+				phy-mode = "sgmii";
+				status = "disabled";
+			};
+
+			mdio: mdio {
+				compatible = "axiado,ax3005-mdio";
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			hfifo: hfifo {
+				compatible = "axiado,ax3005-hfifo";
+				mac = <1>;
+			};
+		};
 	};
 };
