@@ -329,3 +329,7 @@
 &sgpio0 {
 	status = "okay";
 };
+
+&pcie_x1 {
+	status = "okay";
+};
