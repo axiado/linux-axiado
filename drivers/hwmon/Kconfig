@@ -2660,6 +2660,18 @@ config SENSORS_INTEL_M10_BMC_HWMON
 	  sensors monitor various telemetry data of different components on the
 	  card, e.g. board temperature, FPGA core temperature/voltage/current.
 
+config SENSORS_AXIADO_PWM_FAN
+	tristate "AX PWM fan"
+	depends on (PWM && OF)
+	help
+	  If you say yes here you get support for fans connected to the
+	  Axiado PWM lines. The driver uses the generic PWM interface to
+	  control fan speed and reports fan status through the hwmon
+	  sysfs interface.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called axiado-pwm-fan.
+
 if ACPI
 
 comment "ACPI drivers"
