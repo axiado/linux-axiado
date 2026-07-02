@@ -31,6 +31,12 @@ properties:
         enum:
           - brcm,xhci-brcm-v2
           - brcm,bcm7445-xhci
+      - description: Axiado AX3000 SoCs with xHCI
+        items:
+          - enum:
+              - axiado,ax3000-gen2-xhci
+              - axiado,ax3000-gen3-xhci
+          - const: generic-xhci
       - description: Generic xHCI device
         const: xhci-platform
         deprecated: true
