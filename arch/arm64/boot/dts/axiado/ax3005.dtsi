@@ -119,6 +119,7 @@
 
 	display-subsystem {
 		compatible = "axiado,display-subsystem";
+		ports = <&disp_out>;
 	};
 
 	timer {
@@ -154,6 +155,20 @@
 			compatible = "fixed-clock";
 			#clock-cells = <0>;
 			clock-frequency = <400000000>;
+		};
+
+		clk_mali: clk_mali {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <500000000>; /* 500MHz Clock half of CPU clock*/
+			clock-output-names = "clk_mali";
+		};
+
+		clk_pclk: clk_pclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <74250000>;
+			clock-output-names = "clk_pclk";
 		};
 	};
 
@@ -1369,6 +1384,26 @@
 			reg = <0x00 0x33381800 0x00 0x400>;
 			pwms = <&pwm15 0 400>;
 			status = "disabled";
+		};
+
+		disp_ctrl: disp_ctrl@40c00000 {
+			compatible = "axiado,drm-db9000";
+			reg = <0x0 0x40c00000 0x0 0x1000>;
+			memory-region = <&pci_ep_disp>;
+			interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_mali &clk_pclk>;
+			clock-names = "clk_mali", "clk_pclk";
+			bits-per-pixel = <32>;
+			bus-width = <24>;
+			paddr-disp = <0x8c000000>;
+			status = "disabled";
+			disp_out: port {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				disp_out_hdmi: endpoint@0 {
+					reg = <0>;
+				};
+			};
 		};
 	};
 };
