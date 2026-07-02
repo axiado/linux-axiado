@@ -7,6 +7,21 @@ config PCIE_PLDA_HOST
 	bool
 	select IRQ_MSI_LIB
 
+config PCIE_AXIADO_END_POINT
+	bool "Axiado PCIe end point Controller"
+	depends on PCI_MSI
+	depends on PCI
+	depends on ARCH_AXIADO && (OF || COMPILE_TEST)
+	select PCI_HOST_COMMON
+	select PCIE_PLDA_HOST
+	help
+	  Say Y if you want PCIe End-point Support on Axiado SoCs.
+	  PCIe End-Point mode are supported by enabling
+	  this config.
+	  This driver configures the PLDA-based PCIe controller to operate
+	  as an endpoint device allowing the SoC to appear as a PCIe device
+	  to an external host system.
+
 config PCIE_MICROCHIP_HOST
 	tristate "Microchip AXI PCIe controller"
 	depends on PCI_MSI && OF
