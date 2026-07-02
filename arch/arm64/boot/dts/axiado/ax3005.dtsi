@@ -96,9 +96,23 @@
 			reg = <0x00 0x8c000000 0x00 0x4000000>; /* Data-64MB framebuffer */
 			no-map;
 		};
-
 		pci_ep_ctrl: buffer@89300000 {
 			reg = <0x00 0x89300000 0x00 0x100000>; /* Control-1MB */
+			no-map;
+		};
+		shm_ap_to_rot: shm_ap_to_rot@87700000 {
+			/* TX shmem: app-processor writes, ROT reads; */
+			reg = <0x00 0x87700000 0x00 0x200000>; /* 2MB */
+			no-map;
+		};
+		shm_rot_to_ap: shm_rot_to_ap@87900000 {
+			/* RX shmem: ROT writes, app-processor reads; */
+			reg = <0x00 0x87900000 0x00 0x200000>; /* 2MB */
+			no-map;
+		};
+		rot_fwu: rot_fwu@91800000 {
+			/* Reserved for ROT FWU scratch; ROT accesses directly, not used by Linux */
+			reg = <0x00 0x91800000 0x00 0x4400000>; /* R52 FWU scratch 68MB */
 			no-map;
 		};
 	};
@@ -178,6 +192,15 @@
 			interrupt-parent = <&gic500>;
 			status = "okay";
 			#mbox-cells = <1>;
+		};
+
+		mctp-mailbox {
+			compatible = "axiado,ax3005-mctp-mailbox";
+			memory-region = <&shm_ap_to_rot>, <&shm_rot_to_ap>;
+			mboxes = <&mailbox0 0>, /* TX channel */
+				 <&mailbox0 8>; /* RX channel */
+			mbox-names = "tx", "rx";
+			status = "okay";
 		};
 
 		/* GPIO Controller banks 0 - 7 */
