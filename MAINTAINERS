@@ -4217,6 +4217,15 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/mailbox/axiado,axiado-mailbox.yaml
 F:	drivers/mailbox/axiado-mailbox.c
 
+AXIADO PWM DRIVER
+M:	Akhila Kavi <akavi@axiado.com>
+M:	Petar Stepanovic <pstepanovic@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+S:	Maintained
+F:	Documentation/devicetree/bindings/pwm/axiado,ax3000-pwm.yaml
+F:	drivers/pwm/pwm-axiado.c
+
 AXIADO SARADC DRIVER
 M:	Petar Stepanovic <pstepanovic@axiado.com>
 M:	Akhila Kavi <akavi@axiado.com>
