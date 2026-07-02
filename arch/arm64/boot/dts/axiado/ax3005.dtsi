@@ -159,6 +159,27 @@
 			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
+		mailbox0: mailbox@330f2000 {
+			compatible = "axiado,ax3005-mailbox";
+			reg = <0x0 0x330f2000 0x0 0x2000>,
+				<0x0 0x331b0000 0x0 0x1000>;
+			reg-names = "tx", "rx";
+			/* ONLY RX channels (8–15) have IRQs */
+			interrupts = <GIC_SPI 242 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 243 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 244 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 245 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 246 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 247 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 248 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 249 IRQ_TYPE_LEVEL_HIGH>;
+				interrupt-names = "ch8","ch9","ch10","ch11",
+					"ch12","ch13","ch14","ch15";
+			interrupt-parent = <&gic500>;
+			status = "okay";
+			#mbox-cells = <1>;
+		};
+
 		/* GPIO Controller banks 0 - 7 */
 		gpio0: gpio-controller@33000000 {
 			compatible = "axiado,ax3000-gpio", "cdns,gpio-r1p02";
