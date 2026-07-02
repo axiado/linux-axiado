@@ -255,3 +255,7 @@
 &saradc {
 	status = "okay";
 };
+
+&disp_ctrl {
+	status = "okay";
+};
