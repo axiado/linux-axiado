@@ -3,6 +3,18 @@
  * Copyright (C) 2018 Cadence Design Systems Inc.
  *
  * Author: Boris Brezillon <boris.brezillon@bootlin.com>
+ *
+ * Supported quirks:
+ * - disable-warn-on-invalid-id: Disable warning on invalid ID
+ * - enable-repeated-start: Enable repeated start
+ * - disable-ibir: Disable IBIR handling
+ * - disable-ibir-error: Disable IBIR error
+ * - disable-ctrl-halt: Disable CTRL HALT handling
+ * - disable-mst-abort: Disable MST ABORT handling
+ * - skip-payload-inc: Skip payload increment
+ * work done by:
+ *  Copyright (C) 2024-2025 Axiado Corporation.
+ *
  */
 
 #include <linux/bitops.h>
@@ -367,6 +379,14 @@
 #define ASF_PROTO_FAULT_MSTDDR_FAIL	BIT(14)
 #define ASF_PROTO_FAULT_M(x)		BIT(x)
 
+#define CDNS_I3C_QUIRKS_DISABLE_WARN_ON_INVALID_ID BIT(0)
+#define CDNS_I3C_QUIRKS_ENABLE_REPEATED_START BIT(1)
+#define CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING BIT(2)
+#define CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR BIT(3)
+#define CDNS_I3C_QUIRKS_DISABLE_CTRL_HALT BIT(4)
+#define CDNS_I3C_QUIRKS_DISABLE_MST_ABORT BIT(5)
+#define CDNS_I3C_QUIRKS_SKIP_PAYLOAD_INC BIT(6)
+
 struct cdns_i3c_master_caps {
 	u32 cmdfifodepth;
 	u32 cmdrfifodepth;
@@ -395,6 +415,7 @@ struct cdns_i3c_xfer {
 
 struct cdns_i3c_data {
 	u8 thd_delay_ns;
+	u32 quirks;
 };
 
 struct cdns_i3c_master {
@@ -417,6 +438,7 @@ struct cdns_i3c_master {
 	struct cdns_i3c_master_caps caps;
 	unsigned long i3c_scl_lim;
 	const struct cdns_i3c_data *devdata;
+	u32 quirks;
 };
 
 static inline struct cdns_i3c_master *
@@ -568,8 +590,20 @@ static void cdns_i3c_master_end_xfer_locked(struct cdns_i3c_master *master,
 		id = CMDR_CMDID(cmdr);
 		if (id == CMDR_CMDID_HJACK_DISEC ||
 		    id == CMDR_CMDID_HJACK_ENTDAA ||
-		    WARN_ON(id >= xfer->ncmds))
+			id >= xfer->ncmds) {
+			/*
+			 * QUIRK: The AX3000-i3c controller occasionally reports an
+			 * invalid (out-of-bounds) command ID when some I2C devices
+			 * are present on the bus.
+			 * This would normally trigger a WARN_ON(). Suppress this
+			 * warning for this controller to avoid log spam.
+			 */
+			if (id >= xfer->ncmds &&
+			    !(master->quirks &
+			      CDNS_I3C_QUIRKS_DISABLE_WARN_ON_INVALID_ID))
+				WARN_ON(1);
 			continue;
+		}
 
 		cmd = &xfer->cmds[CMDR_CMDID(cmdr)];
 		rx_len = min_t(u32, CMDR_XFER_BYTES(cmdr), cmd->rx_len);
@@ -587,10 +621,25 @@ static void cdns_i3c_master_end_xfer_locked(struct cdns_i3c_master *master,
 		case CMDR_M0_ERROR:
 		case CMDR_M1_ERROR:
 		case CMDR_M2_ERROR:
-		case CMDR_MST_ABORT:
 		case CMDR_NACK_RESP:
 		case CMDR_DDR_DROPPED:
 			ret = -EIO;
+			break;
+
+		case CMDR_MST_ABORT:
+			/*
+			 * QUIRK: When initializing an IBIR-capable device
+			 * (e.g., Renesas I3C HUB) on the AX3000-i3c host,
+			 * a spurious CMDR_MST_ABORT event is triggered.
+			 *
+			 * This abort appears to be a benign side-effect of
+			 * the probing process on this controller. Ignore the
+			 * event to allow initialization to succeed, as returning
+			 * -EIO would cause the hub to fail enumeration.
+			 */
+			if (!(master->quirks &
+			      CDNS_I3C_QUIRKS_DISABLE_MST_ABORT))
+				ret = -EIO;
 			break;
 
 		case CMDR_DDR_RX_FIFO_OVF:
@@ -771,7 +820,17 @@ static int cdns_i3c_master_priv_xfers(struct i3c_dev_desc *dev,
 			ccmd->cmd0 |= CMD0_FIFO_RNW;
 			ccmd->rx_buf = xfers[i].data.in;
 			ccmd->rx_len = xfers[i].len;
-			pl_len++;
+			/*
+			 * QUIRK: When certain I3C hubs (e.g., Renesas HUB) connect
+			 * to the AX3000-i3c, the standard payload length increment
+			 * causes communication issues. The hub expects the exact
+			 * payload length, but the Cadence controller normally adds
+			 * an extra byte.
+			 * Skip the payload length increment for this controller.
+			 */
+			if (!(master->quirks &
+			      CDNS_I3C_QUIRKS_SKIP_PAYLOAD_INC))
+				pl_len++;
 		} else {
 			ccmd->tx_buf = xfers[i].data.out;
 			ccmd->tx_len = xfers[i].len;
@@ -849,6 +908,19 @@ static int cdns_i3c_master_i2c_xfers(struct i2c_dev_desc *dev,
 			ccmd->tx_buf = xfers[i].buf;
 			ccmd->tx_len = xfers[i].len;
 		}
+
+		/*
+		 * QUIRK: The AX3000-i3c platform hosts certain I2C devices
+		 * that require an explicit REPEATED START signal
+		 * between combined transfers.
+		 * The default driver behavior might not issue one, leading
+		 * to communication failures with these specific devices.
+		 * Force-enable REPEATED START for this controller when the
+		 * quirk is set.
+		 */
+		if (i < nxfers - 1 &&
+		    (master->quirks & CDNS_I3C_QUIRKS_ENABLE_REPEATED_START))
+			ccmd->cmd0 |= CMD0_FIFO_RSBC;
 	}
 
 	cdns_i3c_master_queue_xfer(master, xfer);
@@ -1180,8 +1252,18 @@ static int cdns_i3c_master_do_daa(struct i3c_master_controller *m)
 static u8 cdns_i3c_master_calculate_thd_delay(struct cdns_i3c_master *master)
 {
 	unsigned long sysclk_rate = clk_get_rate(master->sysclk);
-	u8 thd_delay = DIV_ROUND_UP(master->devdata->thd_delay_ns,
-				    (NSEC_PER_SEC / sysclk_rate));
+	u8 thd_delay;
+
+	/*
+	 * If clock rate is invalid, use the maximum encoded delay.
+	 * This keeps hardware in a safe state rather than risking
+	 * a divide-by-zero.
+	 */
+	if (WARN_ON(!sysclk_rate))
+		return THD_DELAY_MAX;
+
+	thd_delay = DIV_ROUND_UP(master->devdata->thd_delay_ns,
+				 (NSEC_PER_SEC / sysclk_rate));
 
 	/* Every value greater than 3 is not valid. */
 	if (thd_delay > THD_DELAY_MAX)
@@ -1273,7 +1355,17 @@ static int cdns_i3c_master_bus_init(struct i3c_master_controller *m)
 	 *
 	 * We will issue ENTDAA afterwards from the threaded IRQ handler.
 	 */
-	ctrl |= CTRL_HJ_ACK | CTRL_HJ_DISEC | CTRL_HALT_EN | CTRL_MCS_EN;
+	ctrl |= CTRL_HJ_ACK | CTRL_HJ_DISEC | CTRL_MCS_EN;
+	/*
+	 * QUIRK: When an I3C hub (e.g., Renesas) that supports
+	 * IBIR handling is connected to the AX3000-i3c host
+	 * (which does not support IBIR), a controller halt
+	 * error can be triggered.
+	 * To prevent this halt state, disable the CTRL_HALT_EN
+	 * feature for this controller.
+	 */
+	if (!(master->quirks & CDNS_I3C_QUIRKS_DISABLE_CTRL_HALT))
+		ctrl |= CTRL_HALT_EN;
 
 	/*
 	 * Configure data hold delay based on device-specific data.
@@ -1281,8 +1373,11 @@ static int cdns_i3c_master_bus_init(struct i3c_master_controller *m)
 	 * MIPI I3C Specification 1.0 defines non-zero minimal tHD_PP timing on
 	 * master output. This setting allows to meet this timing on master's
 	 * SoC outputs, regardless of PCB balancing.
+	 *
+	 * Fix: Cast to unsigned int to prevent sign extension during bit shift
 	 */
-	ctrl |= CTRL_THD_DELAY(cdns_i3c_master_calculate_thd_delay(master));
+	ctrl |= CTRL_THD_DELAY(
+		(u32)cdns_i3c_master_calculate_thd_delay(master));
 	writel(ctrl, master->regs + CTRL);
 
 	cdns_i3c_master_enable(master);
@@ -1305,10 +1400,23 @@ static void cdns_i3c_master_handle_ibi(struct cdns_i3c_master *master,
 	 * FIXME: maybe we should report the FIFO OVF errors to the upper
 	 * layer.
 	 */
-	if (id >= master->ibi.num_slots || (ibir & IBIR_ERROR))
+	/*
+	 * QUIRK: The AX3000-i3c host does not support IBIR handling.
+	 * However, I3C hubs (e.g., Renesas) connected to it do
+	 * support IBIR and will handle it themselves.
+	 * This mismatch causes the AX3000 host to incorrectly
+	 * flag a spurious IBIR_ERROR. Ignore this specific error
+	 * when the quirk is set, as the IBI is being correctly
+	 * managed by the hub.
+	 */
+	if (id >= master->ibi.num_slots ||
+	    (!(master->quirks & CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR) &&
+	     (ibir & IBIR_ERROR)))
 		goto out;
 
 	dev = master->ibi.slots[id];
+	if (!dev)
+		goto out;
 	spin_lock(&master->ibi.lock);
 
 	data = i3c_dev_get_master_data(dev);
@@ -1383,7 +1491,8 @@ static irqreturn_t cdns_i3c_master_interrupt(int irq, void *data)
 	cdns_i3c_master_end_xfer_locked(master, status);
 	spin_unlock(&master->xferqueue.lock);
 
-	if (status & MST_INT_IBIR_THR)
+	if (status & MST_INT_IBIR_THR &&
+	    !(master->quirks & CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING))
 		cnds_i3c_master_demux_ibis(master);
 
 	return IRQ_HANDLED;
@@ -1539,10 +1648,17 @@ static void cdns_i3c_master_hj(struct work_struct *work)
 
 static struct cdns_i3c_data cdns_i3c_devdata = {
 	.thd_delay_ns = 10,
+	.quirks = 0,
+};
+
+static const struct cdns_i3c_data ax3000_i3c_def = {
+	.thd_delay_ns = 10,
+	.quirks = CDNS_I3C_QUIRKS_DISABLE_WARN_ON_INVALID_ID,
 };
 
 static const struct of_device_id cdns_i3c_master_of_ids[] = {
 	{ .compatible = "cdns,i3c-master", .data = &cdns_i3c_devdata },
+	{ .compatible = "axiado,ax3000-i3c", .data = &ax3000_i3c_def },
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, cdns_i3c_master_of_ids);
@@ -1562,6 +1678,8 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 	if (!master->devdata)
 		return -EINVAL;
 
+	master->quirks = master->devdata->quirks;
+
 	master->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(master->regs))
 		return PTR_ERR(master->regs);
@@ -1573,6 +1691,25 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 	master->sysclk = devm_clk_get_enabled(&pdev->dev, "sysclk");
 	if (IS_ERR(master->sysclk))
 		return PTR_ERR(master->sysclk);
+
+	/* Parse device tree properties for additional quirks */
+	if (of_property_read_bool(pdev->dev.of_node, "enable-repeated-start"))
+		master->quirks |= CDNS_I3C_QUIRKS_ENABLE_REPEATED_START;
+
+	if (of_property_read_bool(pdev->dev.of_node, "disable-ibir"))
+		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING;
+
+	if (of_property_read_bool(pdev->dev.of_node, "disable-ibir-error"))
+		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_IBIR_ERROR;
+
+	if (of_property_read_bool(pdev->dev.of_node, "disable-ctrl-halt"))
+		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_CTRL_HALT;
+
+	if (of_property_read_bool(pdev->dev.of_node, "disable-mst-abort"))
+		master->quirks |= CDNS_I3C_QUIRKS_DISABLE_MST_ABORT;
+
+	if (of_property_read_bool(pdev->dev.of_node, "skip-payload-inc"))
+		master->quirks |= CDNS_I3C_QUIRKS_SKIP_PAYLOAD_INC;
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
@@ -1615,8 +1752,19 @@ static int cdns_i3c_master_probe(struct platform_device *pdev)
 	if (!master->ibi.slots)
 		return -ENOMEM;
 
-	writel(IBIR_THR(1), master->regs + CMD_IBI_THR_CTRL);
-	writel(MST_INT_IBIR_THR, master->regs + MST_IER);
+	/*
+	 * QUIRK: The AX3000-i3c controller may generate spurious IBI
+	 * interrupts when standard I2C devices (which do not
+	 * support IBI) are connected to the bus.
+	 *
+	 * Handling these unexpected IBIs can lead to a driver crash.
+	 * To avoid this, disable IBIR handling entirely for this
+	 * controller variant.
+	 */
+	if (!(master->quirks & CDNS_I3C_QUIRKS_DISABLE_IBIR_HANDLING)) {
+		writel(IBIR_THR(1), master->regs + CMD_IBI_THR_CTRL);
+		writel(MST_INT_IBIR_THR, master->regs + MST_IER);
+	}
 	writel(DEVS_CTRL_DEV_CLR_ALL, master->regs + DEVS_CTRL);
 
 	return i3c_master_register(&master->base, &pdev->dev,

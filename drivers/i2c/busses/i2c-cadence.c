@@ -128,6 +128,7 @@
 #define CDNS_I2C_TIMEOUT_MAX	0xFF
 
 #define CDNS_I2C_BROKEN_HOLD_BIT	BIT(0)
+#define CDNS_I2C_QUIRKS_ENABLE_SMBUS_QUICK_CFG BIT(1)
 #define CDNS_I2C_POLL_US	100000
 #define CDNS_I2C_POLL_US_ATOMIC	10
 #define CDNS_I2C_TIMEOUT_US	500000
@@ -232,6 +233,31 @@ struct cdns_platform_data {
 
 #define to_cdns_i2c(_nb)	container_of(_nb, struct cdns_i2c, \
 					     clk_rate_change_nb)
+
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
+void cdns_i2c_slave_set_busy(struct i2c_adapter *adap, bool busy);
+#endif
+void cdns_i2c_slave_set_busy(struct i2c_adapter *adap, bool busy)
+{
+	struct device *dev = adap->dev.parent;
+	struct cdns_i2c *id;
+
+	if (!dev)
+		return;
+
+	id = dev_get_drvdata(dev);
+	if (!id)
+		return;
+
+	if (busy) {
+		cdns_i2c_writereg(0x7f & CDNS_I2C_ADDR_MASK,
+				  CDNS_I2C_ADDR_OFFSET);
+	} else {
+		cdns_i2c_writereg(id->slave->addr & CDNS_I2C_ADDR_MASK,
+				  CDNS_I2C_ADDR_OFFSET);
+	}
+}
+EXPORT_SYMBOL_GPL(cdns_i2c_slave_set_busy);
 
 /**
  * cdns_i2c_init -  Controller initialisation
@@ -364,12 +390,11 @@ static void cdns_i2c_slave_rcv_data(struct cdns_i2c *id)
 	/* Prepare backend for data reception */
 	if (id->slave_state == CDNS_I2C_SLAVE_STATE_IDLE) {
 		id->slave_state = CDNS_I2C_SLAVE_STATE_RECV;
-		i2c_slave_event(id->slave, I2C_SLAVE_WRITE_REQUESTED, NULL);
+		i2c_slave_event(id->slave, I2C_SLAVE_WRITE_REQUESTED, &data);
 	}
 
 	/* Fetch number of bytes to receive */
 	bytes = cdns_i2c_readreg(CDNS_I2C_XFER_SIZE_OFFSET);
-
 	/* Read data and send to backend */
 	while (bytes--) {
 		data = cdns_i2c_readreg(CDNS_I2C_DATA_OFFSET);
@@ -1175,9 +1200,15 @@ static int cdns_i2c_master_xfer_atomic(struct i2c_adapter *adap, struct i2c_msg 
  */
 static u32 cdns_i2c_func(struct i2c_adapter *adap)
 {
-	u32 func = I2C_FUNC_I2C | I2C_FUNC_10BIT_ADDR |
-			(I2C_FUNC_SMBUS_EMUL & ~I2C_FUNC_SMBUS_QUICK) |
-			I2C_FUNC_SMBUS_BLOCK_DATA;
+	struct cdns_i2c *id = adap->algo_data;
+	u32 func = I2C_FUNC_I2C | I2C_FUNC_10BIT_ADDR;
+
+	if (id->quirks & CDNS_I2C_QUIRKS_ENABLE_SMBUS_QUICK_CFG)
+		func |= I2C_FUNC_SMBUS_EMUL;
+	else
+		func |= (I2C_FUNC_SMBUS_EMUL & ~I2C_FUNC_SMBUS_QUICK);
+
+	func |= I2C_FUNC_SMBUS_BLOCK_DATA;
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	func |= I2C_FUNC_SLAVE;
@@ -1442,9 +1473,14 @@ static const struct cdns_platform_data r1p10_i2c_def = {
 	.quirks = CDNS_I2C_BROKEN_HOLD_BIT,
 };
 
+static const struct cdns_platform_data ax3000_i2c_def = {
+	.quirks = CDNS_I2C_QUIRKS_ENABLE_SMBUS_QUICK_CFG,
+};
+
 static const struct of_device_id cdns_i2c_of_match[] = {
 	{ .compatible = "cdns,i2c-r1p10", .data = &r1p10_i2c_def },
 	{ .compatible = "cdns,i2c-r1p14",},
+	{ .compatible = "axiado,ax3000-i2c", .data = &ax3000_i2c_def },
 	{ /* end of table */ }
 };
 MODULE_DEVICE_TABLE(of, cdns_i2c_of_match);
@@ -1567,7 +1603,7 @@ static int cdns_i2c_probe(struct platform_device *pdev)
 
 	ret = of_property_read_u32(pdev->dev.of_node, "clock-frequency",
 			&id->i2c_clk);
-	if (ret || (id->i2c_clk > I2C_MAX_FAST_MODE_FREQ))
+	if (ret || (id->i2c_clk > I2C_MAX_FAST_MODE_PLUS_FREQ))
 		id->i2c_clk = I2C_MAX_STANDARD_MODE_FREQ;
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
