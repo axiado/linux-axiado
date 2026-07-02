@@ -24,3 +24,18 @@ config DRM_AXIADO
           Manager (DRM) framework, say Y or M here.
 
           If unsure, say N.
+
+if DRM_AXIADO
+
+config AXIADO_LCDC
+	bool "Axiado DB9000 LCD controller (LCDC)"
+	default y
+	help
+	  Enable the Digital Blocks DB9000 LCD controller sub-driver. It
+	  provides the CRTC and primary plane of the Axiado display
+	  subsystem and binds as a component of the display-subsystem
+	  master.
+
+	  If unsure, say Y.
+
+endif # DRM_AXIADO
