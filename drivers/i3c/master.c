@@ -477,8 +477,13 @@ static int i3c_bus_init(struct i3c_bus *i3cbus, struct device_node *np)
 	i3c_bus_init_addrslots(i3cbus);
 	i3cbus->mode = I3C_BUS_MODE_PURE;
 
-	if (np)
+	if (np) {
 		id = of_alias_get_id(np, "i3c");
+		/* Move bus scrambling fix in KWS-5034 from i3c_master_register to here*/
+		if (id < 0) {
+			id = of_alias_get_id(np, "i2c");
+		}
+	}
 
 	mutex_lock(&i3c_core_lock);
 	if (id >= 0) {
@@ -715,9 +720,10 @@ static void i3c_masterdev_release(struct device *dev)
 	of_node_put(dev->of_node);
 }
 
-static const struct device_type i3c_masterdev_type = {
+const struct device_type i3c_masterdev_type = {
 	.groups	= i3c_masterdev_groups,
 };
+EXPORT_SYMBOL_GPL(i3c_masterdev_type);
 
 static int i3c_bus_set_mode(struct i3c_bus *i3cbus, enum i3c_bus_mode mode,
 			    unsigned long max_i2c_scl_rate)
@@ -858,12 +864,14 @@ static int i3c_master_send_ccc_cmd_locked(struct i3c_master_controller *master,
 
 	return 0;
 }
+static int i3c_master_attach_i2c_dev(struct i3c_master_controller *master,
+				     struct i2c_dev_desc *dev);
 
 static struct i2c_dev_desc *
-i3c_master_find_i2c_dev_by_addr(const struct i3c_master_controller *master,
+i3c_master_find_i2c_dev_by_addr(struct i3c_master_controller *master,
 				u16 addr)
 {
-	struct i2c_dev_desc *dev;
+	struct i2c_dev_desc *dev = NULL;
 
 	i3c_bus_for_each_i2cdev(&master->bus, dev) {
 		if (dev->addr == addr)
@@ -2403,12 +2411,24 @@ static int of_populate_i3c_bus(struct i3c_master_controller *master)
 	return 0;
 }
 
+static u8 i3c_master_i2c_get_lvr(struct i2c_client *client)
+{
+	/* Fall back to no spike filters and FM bus mode. */
+	u8 lvr = I3C_LVR_I2C_INDEX(2) | I3C_LVR_I2C_FM_MODE;
+	u32 reg[3];
+
+	if (!of_property_read_u32_array(client->dev.of_node, "reg", reg, ARRAY_SIZE(reg)))
+		lvr = reg[2];
+
+	return lvr;
+}
+
 static int i3c_master_i2c_adapter_xfer(struct i2c_adapter *adap,
 				       struct i2c_msg *xfers, int nxfers)
 {
 	struct i3c_master_controller *master = i2c_adapter_to_i3c_master(adap);
 	struct i2c_dev_desc *dev;
-	int i, ret;
+	int i, ret, provisional;
 	u16 addr;
 
 	if (!xfers || !master || nxfers <= 0)
@@ -2426,10 +2446,32 @@ static int i3c_master_i2c_adapter_xfer(struct i2c_adapter *adap,
 
 	i3c_bus_normaluse_lock(&master->bus);
 	dev = i3c_master_find_i2c_dev_by_addr(master, addr);
-	if (!dev)
-		ret = -ENOENT;
-	else
-		ret = master->ops->i2c_xfers(dev, xfers, nxfers);
+	provisional = !dev;
+	if (!dev) {
+		u8 lvr = i3c_master_i2c_get_lvr(NULL);
+		dev = i3c_master_alloc_i2c_dev(master, addr, lvr);
+		if (!dev) {
+			ret = -ENOMEM;
+			goto out_unlock;
+		}
+
+		ret = i3c_master_attach_i2c_dev(master, dev);
+		if (ret) {
+			pr_debug("Attaching device to %s failed with status: %d\n",
+				dev_name(&master->dev), ret);
+			i3c_master_free_i2c_dev(dev);
+			goto out_unlock;
+		}
+	}
+
+	ret = master->ops->i2c_xfers(dev, xfers, nxfers);
+	if (ret < 0 && provisional) {
+		pr_debug("No ACK from device; status: %d\n", ret);
+		i3c_master_detach_i2c_dev(dev);
+		i3c_master_free_i2c_dev(dev);
+	}
+
+out_unlock:
 	i3c_bus_normaluse_unlock(&master->bus);
 
 	return ret ? ret : nxfers;
@@ -2438,18 +2480,6 @@ static int i3c_master_i2c_adapter_xfer(struct i2c_adapter *adap,
 static u32 i3c_master_i2c_funcs(struct i2c_adapter *adapter)
 {
 	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C;
-}
-
-static u8 i3c_master_i2c_get_lvr(struct i2c_client *client)
-{
-	/* Fall back to no spike filters and FM bus mode. */
-	u8 lvr = I3C_LVR_I2C_INDEX(2) | I3C_LVR_I2C_FM_MODE;
-	u32 reg[3];
-
-	if (!of_property_read_u32_array(client->dev.of_node, "reg", reg, ARRAY_SIZE(reg)))
-		lvr = reg[2];
-
-	return lvr;
 }
 
 static int i3c_master_i2c_attach(struct i2c_adapter *adap, struct i2c_client *client)
@@ -2557,8 +2587,8 @@ static struct notifier_block i2cdev_notifier = {
 static int i3c_master_i2c_adapter_init(struct i3c_master_controller *master)
 {
 	struct i2c_adapter *adap = i3c_master_to_i2c_adapter(master);
-	struct i2c_dev_desc *i2cdev;
-	struct i2c_dev_boardinfo *i2cboardinfo;
+	// TODO: Remove if not needed
+	//struct i2c_dev_desc *i2cdev;
 	int ret, id;
 
 	adap->dev.parent = master->dev.parent;
@@ -2566,6 +2596,8 @@ static int i3c_master_i2c_adapter_init(struct i3c_master_controller *master)
 	adap->algo = &i3c_master_i2c_algo;
 	strscpy(adap->name, dev_name(master->dev.parent), sizeof(adap->name));
 	adap->timeout = HZ;
+	adap->dev.of_node = master->dev.of_node;
+
 	adap->retries = 3;
 
 	id = of_alias_get_id(master->dev.of_node, "i2c");
@@ -2582,13 +2614,9 @@ static int i3c_master_i2c_adapter_init(struct i3c_master_controller *master)
 	 * We silently ignore failures here. The bus should keep working
 	 * correctly even if one or more i2c devices are not registered.
 	 */
-	list_for_each_entry(i2cboardinfo, &master->boardinfo.i2c, node) {
-		i2cdev = i3c_master_find_i2c_dev_by_addr(master,
-							 i2cboardinfo->base.addr);
-		if (WARN_ON(!i2cdev))
-			continue;
-		i2cdev->dev = i2c_new_client_device(adap, &i2cboardinfo->base);
-	}
+	/* Disabling the detection of the i2c devices again as it was giving -16 */
+	/*i3c_bus_for_each_i2cdev(&master->bus, i2cdev)
+		i2cdev->dev = i2c_new_client_device(adap, &i2cdev->boardinfo->base);*/
 
 	return 0;
 }
@@ -2894,6 +2922,13 @@ int i3c_master_register(struct i3c_master_controller *master,
 	if (ret)
 		goto err_put_dev;
 
+	if (master->dev.of_node) {
+		int alias_id = of_alias_get_id(master->dev.of_node, "i2c");
+
+		if (alias_id >= 0)
+			i3cbus->id = alias_id;
+	}
+
 	dev_set_name(&master->dev, "i3c-%d", i3cbus->id);
 
 	ret = of_populate_i3c_bus(master);
@@ -3132,6 +3167,18 @@ void i3c_dev_free_ibi_locked(struct i3c_dev_desc *dev)
 	dev->ibi = NULL;
 }
 
+int i3c_for_each_dev(void *data, int (*fn)(struct device *, void *))
+{
+	int res;
+
+	mutex_lock(&i3c_core_lock);
+	res = bus_for_each_dev(&i3c_bus_type, NULL, data, fn);
+	mutex_unlock(&i3c_core_lock);
+
+	return res;
+}
+EXPORT_SYMBOL_GPL(i3c_for_each_dev);
+
 static int __init i3c_init(void)
 {
 	int res;
@@ -3141,6 +3188,14 @@ static int __init i3c_init(void)
 		mutex_lock(&i3c_core_lock);
 		__i3c_first_dynamic_bus_num = res + 1;
 		mutex_unlock(&i3c_core_lock);
+	} else {
+		/* If i3c is not found, try i2c cause we already rename i3c to i2c*/
+		res = of_alias_get_highest_id("i2c");
+		if (res >= 0) {
+			mutex_lock(&i3c_core_lock);
+			__i3c_first_dynamic_bus_num = res + 1;
+			mutex_unlock(&i3c_core_lock);
+		}
 	}
 
 	res = bus_register_notifier(&i2c_bus_type, &i2cdev_notifier);
