@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-only
+comment "Axiado media platform drivers"
+config VIDEO_AXIADO
+	bool "Axiado video driver"
+	depends on VIDEO_DEV
+	help
+		Video4Linux2 driver for the Axiado KVM requirement.
+		Support for V4L2 dev node(/dev/videoX) creation and
+		handling data from these nodes. V4L2 is a collection of
+		device driver and API for supporting real time video
+		capture on Linux systems.
