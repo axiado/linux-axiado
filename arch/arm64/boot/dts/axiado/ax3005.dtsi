@@ -1402,8 +1402,31 @@
 				#size-cells = <0>;
 				disp_out_hdmi: endpoint@0 {
 					reg = <0>;
+					remote-endpoint = <&hdmi_in_disp>;
 				};
 			};
 		};
+
+		hdmi: hdmi@40c11000 {
+			compatible ="axiado,ax3000-hdmi";
+			reg = <0x00 0x40c11000 0x00 0x4000>;
+			memory-region = <&pci_ep_disp>;
+			interrupts = <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH>;
+			clocks =  <&clk_mali>, <&clk_pclk>;
+			clock-names = "clk_mali", "clk_pclk";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+			hdmi_in: port {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
+				hdmi_in_disp: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&disp_out_hdmi>;
+				};
+			};
+		};
+
 	};
 };
