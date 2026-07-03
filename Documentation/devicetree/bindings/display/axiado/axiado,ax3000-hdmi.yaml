@@ -1,0 +1,88 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/axiado/axiado,ax3000-hdmi.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado AX3000 HDMI TX Encoder
+
+maintainers:
+  - Shubhangini <shubhangini@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  The HDMI transmitter is a Innosilicon HDMI TX controller IP
+  with a companion PHY IP.
+
+properties:
+    compatible:
+        const: axiado,ax3000-hdmi
+
+    reg:
+        maxItems: 1
+
+    memory-region:
+        maxItems: 1
+
+    clocks:
+        minItems: 2
+        maxItems: 2
+
+    clock-names:
+        items:
+          - const: clk_mali
+          - const: clk_pclk
+
+    interrupts:
+        maxItems: 1
+
+    pwren-gpios:
+        maxItems: 1
+        description: GPIO used to control the HDMI power enable signal.
+
+    '#address-cells':
+        const: 1
+
+    '#size-cells':
+        const: 0
+
+    port:
+        $ref: /schemas/graph.yaml#/properties/port
+        description:
+            Port node with one endpoint connected to the display controller.
+
+required:
+  - compatible
+  - reg
+  - memory-region
+  - clocks
+  - clock-names
+  - interrupts
+  - port
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    hdmi: hdmi@40c11000 {
+        compatible = "axiado,ax3000-hdmi";
+        reg = <0x40c11000 0x4000>;
+        memory-region = <&pci_ep_disp>;
+        interrupts = <0 16 IRQ_TYPE_LEVEL_HIGH>;
+        clocks =  <&clk_mali>, <&clk_pclk>;
+        clock-names = "clk_mali", "clk_pclk";
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        hdmi_in: port {
+            #address-cells = <1>;
+            #size-cells = <0>;
+            hdmi_in_disp: endpoint@0 {
+                reg = <0>;
+                remote-endpoint = <&disp_out_hdmi>;
+            };
+        };
+    };
+...
