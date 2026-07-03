@@ -259,3 +259,8 @@
 &disp_ctrl {
 	status = "okay";
 };
+
+&hdmi {
+	pwren-gpios = <&gpio5 26 0x0>;
+	status = "okay";
+};
