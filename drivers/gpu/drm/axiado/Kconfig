@@ -38,4 +38,16 @@ config AXIADO_LCDC
 
 	  If unsure, say Y.
 
+config AXIADO_HDMI
+	bool "Axiado HDMI TX controller"
+	default y
+	select DRM_DISPLAY_HELPER
+	help
+	  Enable the Axiado HDMI transmitter sub-driver. It provides the
+	  encoder and HDMI connector (with DDC/EDID over an on-chip I2C
+	  master) of the Axiado display subsystem and binds as a component
+	  of the display-subsystem master.
+
+	  If unsure, say Y.
+
 endif # DRM_AXIADO
