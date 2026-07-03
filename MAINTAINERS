@@ -4282,6 +4282,15 @@ S:	Maintained
 F:	drivers/usb/gadget/function/f_hid_axiado.c
 F:	include/linux/hid.h
 
+AXIADO VIDEO DRIVER
+M:	Shubhangini <shubhangini@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
+L:	linux-media@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/media/axiado,ax3000-video.yaml
+F:	drivers/media/platform/axiado/axiado-video.c
+F:	drivers/media/platform/axiado/axiado-video.h
+
 AZ6007 DVB DRIVER
 M:	Mauro Carvalho Chehab <mchehab@kernel.org>
 L:	linux-media@vger.kernel.org
