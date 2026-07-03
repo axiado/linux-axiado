@@ -1428,5 +1428,10 @@
 			};
 		};
 
+		video: video {
+			compatible = "axiado,ax3000-video";
+			memory-region = <&pci_ep_disp>;
+		};
+
 	};
 };
