@@ -67,6 +67,11 @@ config AXIADO_MCTP_MAILBOX
 	  "axiado,axiado-mctp-mailbox" and a named mailbox channel
 	  is required.
 
+config MCTP_TRANSPORT_SPI
+	tristate "MCTP Over SPI Transprt"
+	help
+	  This is in Kernel mode Mctp Over Spi Driver.
+
 endmenu
 
 endif
