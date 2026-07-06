@@ -408,6 +408,28 @@
 			status = "disabled";
 		};
 
+		i2c6: i2c@33180400 {
+			compatible = "cdns,i2c-r1p14";
+			reg = <0x0 0x33180400 0x0 0x400>;
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 82 IRQ_TYPE_LEVEL_HIGH>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c7: i2c@33180800 {
+			compatible = "cdns,i2c-r1p14";
+			reg = <0x0 0x33180800 0x0 0x400>;
+			clocks = <&pclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
 		i2c8: i2c@33200400 {
 			compatible = "cdns,i2c-r1p14";
 			reg = <0x0 0x33200400 0x0 0x400>;
