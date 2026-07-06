@@ -343,7 +343,7 @@
 		};
 
 		i2c0: i2c@33000400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33000400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -354,7 +354,7 @@
 		};
 
 		i2c1: i2c@33000800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33000800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -365,7 +365,7 @@
 		};
 
 		i2c2: i2c@33080400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33080400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -376,7 +376,7 @@
 		};
 
 		i2c3: i2c@33080800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33080800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -387,7 +387,7 @@
 		};
 
 		i2c4: i2c@33100400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33100400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -398,7 +398,7 @@
 		};
 
 		i2c5: i2c@33100800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33100800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -409,7 +409,7 @@
 		};
 
 		i2c6: i2c@33180400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33180400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -420,7 +420,7 @@
 		};
 
 		i2c7: i2c@33180800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33180800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -431,7 +431,7 @@
 		};
 
 		i2c8: i2c@33200400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33200400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -442,7 +442,7 @@
 		};
 
 		i2c9: i2c@33200800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33200800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -453,7 +453,7 @@
 		};
 
 		i2c10: i2c@33280400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33280400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -464,7 +464,7 @@
 		};
 
 		i2c11: i2c@33280800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33280800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -503,7 +503,7 @@
 		};
 
 		i2c14: i2c@33380400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33380400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -514,7 +514,7 @@
 		};
 
 		i2c15: i2c@33380800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33380800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -525,7 +525,7 @@
 		};
 
 		i2c16: i2c@33120400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33120400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -536,7 +536,7 @@
 		};
 
 		i2c17: i2c@33021400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33021400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -547,7 +547,7 @@
 		};
 
 		i2c18: i2c@33021800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33021800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -558,7 +558,7 @@
 		};
 
 		i2c19: i2c@330c0400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x330c0400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -569,7 +569,7 @@
 		};
 
 		i2c20: i2c@330c0800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x330c0800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -580,7 +580,7 @@
 		};
 
 		i2c21: i2c@330c0c00 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x330c0c00 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -591,7 +591,7 @@
 		};
 
 		i2c22: i2c@331a0800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x331a0800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -602,7 +602,7 @@
 		};
 
 		i2c23: i2c@33302800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33302800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -613,7 +613,7 @@
 		};
 
 		i2c24: i2c@33302c00 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33302c00 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -624,7 +624,7 @@
 		};
 
 		i2c25: i2c@33303000 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33303000 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -635,7 +635,7 @@
 		};
 
 		i2c26: i2c@33382000 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33382000 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -646,7 +646,7 @@
 		};
 
 		i2c27: i2c@33382400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33382400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -657,7 +657,7 @@
 		};
 
 		i2c28: i2c@33382800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33382800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -668,7 +668,7 @@
 		};
 
 		i2c29: i2c@33382c00 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33382c00 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -679,7 +679,7 @@
 		};
 
 		i2c30: i2c@33383000 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33383000 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -690,7 +690,7 @@
 		};
 
 		i2c31: i2c@33383400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33383400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -701,7 +701,7 @@
 		};
 
 		i2c32: i2c@33383800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33383800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -712,7 +712,7 @@
 		};
 
 		i2c33: i2c@33282400 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33282400 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -723,7 +723,7 @@
 		};
 
 		i2c34: i2c@33282800 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33282800 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -734,7 +734,7 @@
 		};
 
 		i2c35: i2c@33282c00 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33282c00 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
@@ -745,7 +745,7 @@
 		};
 
 		i2c36: i2c@33283000 {
-			compatible = "cdns,i2c-r1p14";
+			compatible = "axiado,ax3000-i2c", "cdns,i2c-r1p14";
 			reg = <0x0 0x33283000 0x0 0x400>;
 			clocks = <&pclk>;
 			interrupt-parent = <&gic500>;
