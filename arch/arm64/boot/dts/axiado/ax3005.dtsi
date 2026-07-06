@@ -170,6 +170,13 @@
 			clock-frequency = <74250000>;
 			clock-output-names = "clk_pclk";
 		};
+
+		clk_xin: clk_xin {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <200000000>;
+			clock-output-names = "clk_xin";
+		};
 	};
 
 	vref_reg: vref-regulator {
@@ -1433,5 +1440,23 @@
 			memory-region = <&pci_ep_disp>;
 		};
 
+		emmc_phy: emmc-phy@33301c00 {
+			compatible = "axiado,ax3000-emmc-phy";
+			reg = <0x00 0x33301c00 0x00 0x100>;
+			#phy-cells = <0>;
+			status = "disabled";
+		};
+
+		sdhci0: mmc@46000000 {
+			compatible = "axiado,ax3000-sdhci-5.1-emmc", "arasan,sdhci-5.1";
+			reg = <0x0 0x46000000 0x00 0x1000>;
+			clock-names = "clk_xin", "clk_ahb";
+			clocks = <&clk_xin &clk_xin>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
+			phys = <&emmc_phy>;
+			phy-names = "phy_arasan";
+			status = "disabled";
+		};
 	};
 };
