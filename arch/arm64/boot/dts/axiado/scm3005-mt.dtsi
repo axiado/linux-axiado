@@ -264,3 +264,11 @@
 	pwren-gpios = <&gpio5 26 0x0>;
 	status = "okay";
 };
+
+&emmc_phy {
+	status = "okay";
+};
+
+&sdhci0 {
+	status = "okay";
+};
