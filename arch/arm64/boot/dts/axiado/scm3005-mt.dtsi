@@ -268,7 +268,6 @@
 };
 
 &hdmi {
-	pwren-gpios = <&gpio5 26 0x0>;
 	status = "okay";
 };
 
@@ -278,4 +277,16 @@
 
 &sdhci0 {
 	status = "okay";
+};
+
+&pcie_x1 {
+	status = "okay";
+};
+
+&mac4 {
+	status = "okay";
+};
+
+&hfifo {
+	mac = <4>;
 };
