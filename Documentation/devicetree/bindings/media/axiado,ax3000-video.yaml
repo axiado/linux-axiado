@@ -11,20 +11,25 @@ maintainers:
   - Tzu-Hao Wei <twei@axiado.com>
   - Prasad Bolisetty <pbolisetty@axiado.com>
 
-description: |
-  This is the device tree binding for the Axiado AX3000 video controller,
-  which is part of the Trusted Control/Compute Unit (TCU).
-  It typically provides a display output for a secure, out-of-band
-  management console within a server environment.
+description:
+  Axiado AX3000 video capture controller. Reads frames written by the
+  display engine into a shared reserved memory region and exposes them
+  as a V4L2 capture device.
 
 properties:
   compatible:
-    const: axiado,ax3000-video
+    oneOf:
+      - const: axiado,ax3000-video
+      - items:
+          - const: axiado,ax3005-video
+          - const: axiado,ax3000-video
 
   memory-region:
-    $ref: /schemas/types.yaml#/definitions/phandle-array
-    description: |
-      Reserved-memory region used for video frame buffer.
+    minItems: 1
+    maxItems: 2
+    items:
+      - description: video frame buffer, shared with the display engine
+      - description: optional control mailbox, shared with the host
 
 required:
   - compatible
@@ -36,5 +41,5 @@ examples:
   - |
     video {
         compatible = "axiado,ax3000-video";
-        memory-region = <&pci_ep_disp>;
+        memory-region = <&pci_ep_disp>, <&pci_ep_ctrl>;
     };
