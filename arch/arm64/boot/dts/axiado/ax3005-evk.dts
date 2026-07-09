@@ -541,7 +541,6 @@
 };
 
 &hdmi {
-	pwren-gpios = <&gpio5 26 0x0>;
 	status = "okay";
 };
 
