@@ -1,1015 +1,850 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2023-2025 Axiado Corporation.
+ * Copyright (c) 2023-2026 Axiado Corporation.
  *
- * Axiado Video Driver
- *
- * Based on aspeed-video.c
+ * Axiado AX3000 V4L2 capture driver.
  */
 
-#include <linux/platform_device.h>
+#include <linux/io.h>
+#include <linux/jiffies.h>
+#include <linux/list.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/of_address.h>
+#include <linux/platform_device.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/timer.h>
+#include <linux/workqueue.h>
+
+#include <media/v4l2-device.h>
 #include <media/v4l2-fh.h>
-#include "axiado-video.h"
+#include <media/v4l2-ioctl.h>
+#include <media/videobuf2-v4l2.h>
+#include <media/videobuf2-vmalloc.h>
 
-static int frame_count = -1; /* The number of frames requested in VIDIOC_REQBUFS */
-static unsigned long frame_interval; /* Stores the interval between each frame */
-/* Structure used for passing to the timer_setup function */
-struct v4l2_poll_frame {
-	struct timer_list timer;
-	struct axiado_video *video;
+#define AXIADO_VIDEO_DRIVER_NAME	"axiado-video"
+#define AXIADO_VIDEO_CARD_NAME		"Axiado AX3000 Video"
+
+#define AXIADO_VIDEO_MIN_WIDTH		320
+#define AXIADO_VIDEO_MIN_HEIGHT		240
+#define AXIADO_VIDEO_MAX_WIDTH		1920
+#define AXIADO_VIDEO_MAX_HEIGHT		1080
+#define AXIADO_VIDEO_DEF_WIDTH		640
+#define AXIADO_VIDEO_DEF_HEIGHT		480
+#define AXIADO_VIDEO_DEF_FRAMERATE	30
+#define AXIADO_VIDEO_MIN_BUFFERS	2
+
+/*
+ * Host-written current mode (u32 LE width, u32 LE height) in the control
+ * mailbox; must match AX_DP_MODE_DATA in the host's ax_drv.h.
+ */
+#define AX_DP_MODE_DATA		0x1000
+
+struct axiado_video_buffer {
+	struct vb2_v4l2_buffer	vb;
+	struct list_head	link;
 };
-static struct v4l2_poll_frame v4l2_poll;
 
-
-/* Function Declaration */
-static void axiado_video_v4l2_read(struct timer_list *t);
-static int axiado_streamoff(struct axiado_video *video);
-
-/*
- * V4L2 open interface
- * @param	file *
- * @return	0 on success
- */
-static int axiado_video_v4l2_open(struct file *file)
+static inline struct axiado_video_buffer *
+to_axiado_video_buffer(struct vb2_v4l2_buffer *vbuf)
 {
-	struct video_device *dev;
-	struct axiado_video *video;
-	int ret;
-
-	dev = video_devdata(file);
-	if (dev == NULL)
-		return -EINVAL;
-	video = video_get_drvdata(dev);
-	if (!video) {
-		pr_err("ERROR:%s failed\n", __func__);
-		return -EBADF;
-	}
-
-	down(&video->busy_lock);
-	if (signal_pending(current)) {
-		up(&video->busy_lock);
-		return -ERESTARTSYS;
-	}
-
-	/* All V4L2 drivers must register a v4l2_fh per open file. */
-	ret = v4l2_fh_open(file);
-	if (ret) {
-		up(&video->busy_lock);
-		return ret;
-	}
-
-	if (video->open_count++ == 0) {
-		video->enc_counter = 0;
-		video->write_counter = 0;
-		INIT_LIST_HEAD(&video->ready_q);
-		INIT_LIST_HEAD(&video->working_q);
-		INIT_LIST_HEAD(&video->done_q);
-	}
-
-	up(&video->busy_lock);
-
-	return 0;
+	return container_of(vbuf, struct axiado_video_buffer, vb);
 }
 
-/*
- * Free frame buffer status
- * @param	struct axiado_video *
- * @return	void
- */
-static void axiado_free_frames(struct axiado_video *video)
-{
-	int i;
+struct axiado_video {
+	struct device		*dev;
+	void			*addr;		/* memremap of shared region */
+	size_t			addr_size;	/* bytes mapped */
+	void __iomem		*ctrl_reg;	/* optional host control mailbox */
 
-	if (video == NULL)
+	struct v4l2_device	v4l2_dev;
+	struct video_device	vdev;
+	struct vb2_queue	queue;
+	struct mutex		video_lock;	/* serialises queue + ioctls */
+
+	spinlock_t		buf_lock;	/* protects pending list */
+	struct list_head	pending;
+
+	struct timer_list	timer;
+	struct work_struct	capture_work;
+
+	struct v4l2_pix_format	pix_fmt;
+	unsigned int		frame_interval; /* jiffies between frames */
+	unsigned int		fps;
+
+	u32			sequence;
+	bool			streaming;
+};
+
+struct axiado_video_format {
+	u32	fourcc;
+	u8	bpp;
+};
+
+static const struct axiado_video_format axiado_video_formats[] = {
+	{ V4L2_PIX_FMT_XBGR32, 4 },
+	{ V4L2_PIX_FMT_RGB24,  3 },
+	{ V4L2_PIX_FMT_YUYV,   2 },
+};
+
+static const struct axiado_video_format *
+axiado_video_lookup_format(u32 fourcc)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(axiado_video_formats); i++)
+		if (axiado_video_formats[i].fourcc == fourcc)
+			return &axiado_video_formats[i];
+	return NULL;
+}
+
+static void axiado_video_apply_format(struct v4l2_pix_format *p,
+				     const struct axiado_video_format *fmt)
+{
+	p->pixelformat = fmt->fourcc;
+	p->bytesperline = p->width * fmt->bpp;
+	p->sizeimage = p->bytesperline * p->height;
+	p->field = V4L2_FIELD_NONE;
+	p->colorspace = V4L2_COLORSPACE_SRGB;
+}
+
+static void axiado_video_clamp_size(struct v4l2_pix_format *p)
+{
+	p->width = clamp_t(u32, p->width & ~1u,
+			   AXIADO_VIDEO_MIN_WIDTH, AXIADO_VIDEO_MAX_WIDTH);
+	p->height = clamp_t(u32, p->height & ~1u,
+			    AXIADO_VIDEO_MIN_HEIGHT, AXIADO_VIDEO_MAX_HEIGHT);
+}
+
+static void axiado_video_capture_one(struct axiado_video *video)
+{
+	struct axiado_video_buffer *buf;
+	struct vb2_v4l2_buffer *vbuf;
+	unsigned long flags;
+	size_t copy_sz;
+	void *vaddr;
+
+	spin_lock_irqsave(&video->buf_lock, flags);
+	if (!READ_ONCE(video->streaming) || list_empty(&video->pending)) {
+		spin_unlock_irqrestore(&video->buf_lock, flags);
 		return;
-
-	for (i = 0; i < FRAME_NUM; i++)
-		video->frame[i].buffer.flags = V4L2_BUF_FLAG_MAPPED;
-
-	video->enc_counter = 0;
-	video->write_counter = 0;
-	INIT_LIST_HEAD(&video->ready_q);
-	INIT_LIST_HEAD(&video->working_q);
-	INIT_LIST_HEAD(&video->done_q);
-}
-
-/*
- * Free frame buffer allocated by dma_alloc_coherent
- * @param	struct axiado_video *
- * @return	0 on success
- */
-static int axiado_free_frame_buf(struct axiado_video *video)
-{
-	int i;
-
-	if (video == NULL)
-		return -EINVAL;
-
-	for (i = 0; i < FRAME_NUM; i++) {
-		if (video->frame[i].vaddress != 0) {
-			dma_free_coherent(video->dev, video->default_size,
-					  video->frame[i].vaddress,
-					  video->frame[i].paddress);
-			video->frame[i].vaddress = 0;
-		}
 	}
+	buf = list_first_entry(&video->pending, struct axiado_video_buffer, link);
+	list_del_init(&buf->link);
+	spin_unlock_irqrestore(&video->buf_lock, flags);
 
-	return 0;
-}
+	vbuf = &buf->vb;
+	vaddr = vb2_plane_vaddr(&vbuf->vb2_buf, 0);
 
-/*
- * Allocate memory for requested frame buffers
- * @param	struct axiado_video *, int
- * @return	0 on success
- */
-static int axiado_allocate_frame_buf(struct axiado_video *video, int count)
-{
-	int i;
+	if (vaddr) {
+		/*
+		 * Prevent the CPU from reordering the loads below against
+		 * prior loads.  This does not coordinate with the display
+		 * engine writer; a torn frame is possible if the poll timer
+		 * fires while the producer is mid-update.
+		 */
+		rmb();
 
-	if (video == NULL)
-		return -EINVAL;
+		if (video->pix_fmt.pixelformat == V4L2_PIX_FMT_RGB24) {
+			/*
+			 * XBGR32 memory order: B(0), G(1), R(2), X(3).
+			 * RGB24  memory order: R(0), G(1), B(2).
+			 */
+			const u8 *src = (const u8 *)video->addr;
+			u8 *dst = (u8 *)vaddr;
+			unsigned int pixels = video->pix_fmt.width * video->pix_fmt.height;
+			unsigned int i;
 
-	for (i = 0; i < count; i++) {
-		if (video->frame[i].vaddress == 0) {
-			video->frame[i].vaddress = dma_alloc_coherent(
-				video->dev,
-				PAGE_ALIGN(video->v2f.fmt.pix.sizeimage),
-				&video->frame[i].paddress,
-				GFP_DMA | GFP_KERNEL);
-			if (video->frame[i].vaddress == NULL) {
-				pr_err("ERROR: v4l2 capture: %s failed.\n",
-				       __func__);
-				axiado_free_frame_buf(video);
-				return -ENOBUFS;
+			for (i = 0; i < pixels; i++) {
+				dst[i * 3 + 0] = src[i * 4 + 2]; /* R */
+				dst[i * 3 + 1] = src[i * 4 + 1]; /* G */
+				dst[i * 3 + 2] = src[i * 4 + 0]; /* B */
 			}
-		}
-		video->frame[i].buffer.index = i;
-		video->frame[i].buffer.flags = V4L2_BUF_FLAG_MAPPED;
-		video->frame[i].buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		video->frame[i].buffer.length = video->v2f.fmt.pix.sizeimage;
-		video->frame[i].buffer.memory = V4L2_MEMORY_MMAP;
-		video->frame[i].buffer.m.offset = video->frame[i].paddress;
-		video->frame[i].index = i;
-	}
-	video->default_size = video->v2f.fmt.pix.sizeimage;
 
+			copy_sz = pixels * 3;
+			vb2_set_plane_payload(&vbuf->vb2_buf, 0, copy_sz);
+		} else if (video->pix_fmt.pixelformat == V4L2_PIX_FMT_YUYV) {
+			/*
+			 * BT.601 studio-swing XBGR32→YUYV (4:2:2 packed).
+			 * Source: B(0), G(1), R(2), X(3) per pixel.
+			 * Output: Y0, U, Y1, V per pair of pixels.
+			 * Width is always even (clamped in try_fmt).
+			 */
+			const u8 *src = (const u8 *)video->addr;
+			u8 *dst = (u8 *)vaddr;
+			unsigned int pairs = (video->pix_fmt.width * video->pix_fmt.height) / 2;
+			unsigned int i;
+
+			for (i = 0; i < pairs; i++) {
+				s32 b0 = src[i * 8 + 0], g0 = src[i * 8 + 1], r0 = src[i * 8 + 2];
+				s32 b1 = src[i * 8 + 4], g1 = src[i * 8 + 5], r1 = src[i * 8 + 6];
+
+				dst[i * 4 + 0] = ((66 * r0 + 129 * g0 +  25 * b0 + 128) >> 8) + 16;
+				dst[i * 4 + 1] = ((-38 * r0 - 74 * g0 + 112 * b0 + 128) >> 8) + 128;
+				dst[i * 4 + 2] = ((66 * r1 + 129 * g1 +  25 * b1 + 128) >> 8) + 16;
+				dst[i * 4 + 3] = ((112 * r0 - 94 * g0 - 18 * b0 + 128) >> 8) + 128;
+			}
+
+			copy_sz = video->pix_fmt.width * video->pix_fmt.height * 2;
+			vb2_set_plane_payload(&vbuf->vb2_buf, 0, copy_sz);
+		} else {
+			copy_sz = min_t(size_t, video->pix_fmt.sizeimage, video->addr_size);
+			memcpy(vaddr, video->addr, copy_sz);
+			vb2_set_plane_payload(&vbuf->vb2_buf, 0, copy_sz);
+		}
+	}
+
+	vbuf->vb2_buf.timestamp = ktime_get_ns();
+	vbuf->sequence = video->sequence++;
+	vbuf->field = V4L2_FIELD_NONE;
+	vb2_buffer_done(&vbuf->vb2_buf, vaddr ? VB2_BUF_STATE_DONE : VB2_BUF_STATE_ERROR);
+}
+
+static void axiado_video_capture_work(struct work_struct *work)
+{
+	struct axiado_video *video = container_of(work, struct axiado_video, capture_work);
+
+	axiado_video_capture_one(video);
+
+	if (READ_ONCE(video->streaming))
+		mod_timer(&video->timer, jiffies + READ_ONCE(video->frame_interval));
+}
+
+static void axiado_video_timer_fn(struct timer_list *t)
+{
+	struct axiado_video *video = timer_container_of(video, t, timer);
+
+	schedule_work(&video->capture_work);
+}
+
+static int axiado_video_queue_setup(struct vb2_queue *q,
+				   unsigned int *nbuffers,
+				   unsigned int *nplanes,
+				   unsigned int sizes[],
+				   struct device *alloc_devs[])
+{
+	struct axiado_video *video = vb2_get_drv_priv(q);
+	unsigned int size = video->pix_fmt.sizeimage;
+
+	if (*nplanes) {
+		if (sizes[0] < size)
+			return -EINVAL;
+		return 0;
+	}
+	*nplanes = 1;
+	sizes[0] = size;
 	return 0;
 }
 
-/*
- * V4L2 interface - release function
- * @param	struct file *
- * @return	0 on success, -EBADF on error
- */
-static int axiado_video_v4l2_release(struct file *file)
+static int axiado_video_buf_prepare(struct vb2_buffer *vb)
 {
-	struct video_device *dev;
-	struct axiado_video *video;
+	struct axiado_video *video = vb2_get_drv_priv(vb->vb2_queue);
+	unsigned long sz = video->pix_fmt.sizeimage;
 
-	dev = video_devdata(file);
-	if (dev == NULL)
-		return -EINVAL;
-	video = video_get_drvdata(dev);
-	if (!video) {
-		pr_info("ERROR:%s failed\n", __func__);
-		return -EBADF;
-	}
-
-	down(&video->busy_lock);
-	if (--video->open_count == 0) {
-		axiado_free_frame_buf(video);
-
-		/* capture off */
-		wake_up_interruptible(&video->enc_queue);
-		axiado_free_frames(video);
-		video->enc_counter++;
-	}
-	up(&video->busy_lock);
-
-	return v4l2_fh_release(file);
-}
-
-/*
- * Function to return the buffer status
- * @param	struct axiado_video *, struct v4l2_buffer *
- * @return	0 on success, -EINVAL on error
- */
-static int axiado_v4l2_buffer_status(struct axiado_video *video,
-				    struct v4l2_buffer *buf)
-{
-	if (video == NULL || buf == NULL)
-		return -EINVAL;
-	if (buf->index >= FRAME_NUM) {
-		pr_err("ERROR: v4l2 capture: %s buffers not allocated\n",
-		       __func__);
+	if (vb2_plane_size(vb, 0) < sz) {
+		dev_err(video->dev,
+			"buffer too small (%lu < %lu)\n",
+			vb2_plane_size(vb, 0), sz);
 		return -EINVAL;
 	}
-
-	memcpy(buf, &(video->frame[buf->index].buffer), sizeof(*buf));
-
 	return 0;
 }
 
-/*
- * V4L2 interface - Dequeue one V4L capture buffer
- * @param	struct axiado_video *, struct v4l2_buffer *
- * @return	0 on success, -ETIME, -EBUSY, -EINVAL on error
- */
-static int axiado_v4l2_dqueue(struct axiado_video *video, struct v4l2_buffer *buf)
+static void axiado_video_buf_queue(struct vb2_buffer *vb)
 {
-	int ret = 0;
-	struct axiado_v4l2_frame *frame;
-	unsigned long lock_flags;
-
-	if (video == NULL || buf == NULL)
-		return -EINVAL;
-
-	if (video->enc_counter == 0)
-		wake_up_interruptible(&video->load_queue);
-
-	if (!wait_event_interruptible_timeout(video->enc_queue,
-					      video->enc_counter > 0, 2 * HZ)) {
-		pr_err("v4l2 capture: %s timeout enc_counter %x\n", __func__,
-		       video->enc_counter);
-		return -ETIME;
-	} else if (signal_pending(current)) {
-		pr_err("v4l2 capture: %s interrupt received\n", __func__);
-		timer_delete_sync(&v4l2_poll.timer);
-		axiado_streamoff(video);
-		return -ERESTARTSYS;
-	}
-
-	if (down_interruptible(&video->busy_lock))
-		return -EBUSY;
-
-	spin_lock_irqsave(&video->dqueue_int_lock, lock_flags);
-	if (!list_empty(&video->done_q)) {
-		video->enc_counter--;
-		video->write_counter--;
-		frame = list_entry(video->done_q.next, struct axiado_v4l2_frame,
-				   queue);
-		list_del(video->done_q.next);
-		if (frame->buffer.flags & V4L2_BUF_FLAG_DONE) {
-			frame->buffer.flags &= ~V4L2_BUF_FLAG_DONE;
-		} else if (frame->buffer.flags & V4L2_BUF_FLAG_QUEUED) {
-			pr_err("ERROR: v4l2 capture: VIDIOC_DQBUF: Buffer not filled.\n");
-			frame->buffer.flags &= ~V4L2_BUF_FLAG_QUEUED;
-			ret = -EINVAL;
-		} else if ((frame->buffer.flags & 0x7) ==
-			   V4L2_BUF_FLAG_MAPPED) {
-			pr_err("ERROR: v4l2 capture: VIDIOC_DQBUF: Buffer not queued.\n");
-			ret = -EINVAL;
-		}
-	} else {
-		pr_err("ERROR: v4l2 capture: %s: done_q queue empty\n",
-		       __func__);
-		spin_unlock_irqrestore(&video->dqueue_int_lock, lock_flags);
-		up(&video->busy_lock);
-		return -EINVAL;
-	}
-
-	buf->bytesused = frame->buffer.bytesused;
-	buf->length = frame->buffer.length;
-	buf->index = frame->index;
-	buf->flags = frame->buffer.flags;
-	buf->m = video->frame[frame->index].buffer.m;
-	buf->timestamp = video->frame[frame->index].buffer.timestamp;
-	buf->field = video->frame[frame->index].buffer.field;
-
-	spin_unlock_irqrestore(&video->dqueue_int_lock, lock_flags);
-	up(&video->busy_lock);
-
-	return ret;
-}
-
-/*
- * V4L2 interface - ioctl function to get the data format
- * @param	struct axiado_video *, struct v4l2_streamparm *
- * @return	0 on success, on error -EINVAL is returned
- */
-static int axiado_v4l2_g_fmt(struct axiado_video *video, struct v4l2_format *fmt)
-{
-	int ret = 0;
-
-	if (video == NULL || fmt == NULL)
-		return -EINVAL;
-
-	pr_debug("Inside %s : type = %d\n", __func__, fmt->type);
-
-	switch (fmt->type) {
-	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
-	case V4L2_BUF_TYPE_VIDEO_OUTPUT:
-		fmt->fmt.pix = video->v2f.fmt.pix;
-		break;
-
-	default:
-		pr_err("%s : Invalid Type\n", __func__);
-		ret = -EINVAL;
-		break;
-	}
-
-	pr_debug("End of %s: v2f pix widthxheight %d x %d\n", __func__,
-		 video->v2f.fmt.pix.width, video->v2f.fmt.pix.height);
-
-	return ret;
-}
-
-/*
- * V4L2 interface - ioctl function to set streaming parameters
- * @param	struct axiado_video *, struct v4l2_streamparm *
- * @return	0 on success, on error -EINVAL is returned
- */
-static int axiado_v4l2_s_param(struct axiado_video *video,
-			      struct v4l2_streamparm *parm)
-{
-	struct v4l2_format vid_fmt;
-	int err = 0;
-
-	if (video == NULL || parm == NULL)
-		return -EINVAL;
-
-	if (parm->type != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
-		pr_info("Invalid type\n");
-		return -EINVAL;
-	}
-
-	video->streamparm.parm.capture.timeperframe.numerator =
-		parm->parm.capture.timeperframe.numerator;
-	video->streamparm.parm.capture.timeperframe.denominator =
-		parm->parm.capture.timeperframe.denominator;
-	video->standard.frameperiod.denominator =
-		video->streamparm.parm.capture.timeperframe.denominator;
-	/* Calculating the frame interval whenever the framerate is modified */
-	frame_interval = (HZ / video->standard.frameperiod.denominator);
-	pr_debug("%s : Framerate = %d fps\n", __func__,
-		 video->standard.frameperiod.denominator);
-	video->streamparm.parm.capture.capability = V4L2_CAP_TIMEPERFRAME;
-	vid_fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	pr_debug("%s : width x height of input is %d x %d\n", __func__,
-		 vid_fmt.fmt.pix.width, vid_fmt.fmt.pix.height);
-
-	return err;
-}
-
-/* V4L2 interface - streamon function to start streaming frames
- * @param	struct axiado_video *
- * @return	0 on success, errno on error
- */
-static int axiado_video_v4l2_streamon(struct axiado_video *video)
-{
-	struct axiado_v4l2_frame *frame;
+	struct axiado_video *video = vb2_get_drv_priv(vb->vb2_queue);
+	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
+	struct axiado_video_buffer *buf = to_axiado_video_buffer(vbuf);
 	unsigned long flags;
 
-	if (video == NULL) {
-		pr_err("ERROR: v4l2 capture: %s Video parameter is NULL\n",
-		       __func__);
-		return -EINVAL;
-	}
-
-	if (video->capture_on) {
-		pr_err("ERROR: v4l2 capture: %s Video Stream has been turned on\n",
-		       __func__);
-		return -EBUSY;
-	}
-
-	spin_lock_irqsave(&video->queue_int_lock, flags);
-	if (!list_empty(&video->ready_q)) {
-		frame = list_entry(video->ready_q.next, struct axiado_v4l2_frame,
-				   queue);
-		frame->buffer.flags |= V4L2_BUF_FLAG_QUEUED;
-		list_del(video->ready_q.next);
-		list_add_tail(&frame->queue, &video->working_q);
-		video->capture_on = true;
-		wake_up_interruptible(&video->write_queue);
-		spin_unlock_irqrestore(&video->queue_int_lock, flags);
-	} else {
-		pr_err("ERROR: v4l2 capture: %s: ready_q queue 2 empty\n",
-		       __func__);
-		spin_unlock_irqrestore(&video->queue_int_lock, flags);
-		return -EINVAL;
-	}
-
-	/* Begin the timer for initial read */
-	v4l2_poll.video = video;
-	timer_setup(&v4l2_poll.timer, axiado_video_v4l2_read, 0);
-	mod_timer(&v4l2_poll.timer, jiffies + frame_interval);
-	pr_debug("%s : Framerate = %d fps\n", __func__,
-		 video->standard.frameperiod.denominator);
-	return 0;
+	spin_lock_irqsave(&video->buf_lock, flags);
+	list_add_tail(&buf->link, &video->pending);
+	spin_unlock_irqrestore(&video->buf_lock, flags);
 }
 
-/*
- * V4L2 interface - ioctl function to turn off streaming
- * @param	struct axiado_video *
- * @return	0 on success and errno on error
- */
-static int axiado_streamoff(struct axiado_video *video)
+static int axiado_video_start_streaming(struct vb2_queue *q, unsigned int count)
 {
-	if (video == NULL)
-		return -EINVAL;
-	if (video->capture_on == false)
-		return 0;
+	struct axiado_video *video = vb2_get_drv_priv(q);
 
-	timer_delete_sync(&v4l2_poll.timer);
-	video->capture_on = false;
-	axiado_free_frames(video);
+	video->sequence = 0;
+	WRITE_ONCE(video->streaming, true);
+	mod_timer(&video->timer, jiffies + READ_ONCE(video->frame_interval));
 
 	return 0;
 }
 
-/*
- * V4L2 interface - load frames into queue
- * @param	struct axiado_video *
- * @param	0 on success; on error -EPIPE, -ERESTARTSYS
- */
-static int axiado_v4l2_load_frame(struct axiado_video *video)
+static void axiado_video_stop_streaming(struct vb2_queue *q)
 {
-	struct axiado_v4l2_frame *done_frame = NULL;
-	struct axiado_v4l2_frame *ready_frame = NULL;
-	unsigned long ns;
-	ktime_t ts;
+	struct axiado_video *video = vb2_get_drv_priv(q);
+	struct axiado_video_buffer *buf, *tmp;
+	struct list_head drain;
+	unsigned long flags;
 
-	if (video == NULL)
-		return -EINVAL;
+	WRITE_ONCE(video->streaming, false);
+	timer_delete_sync(&video->timer);
+	cancel_work_sync(&video->capture_work);
+	/*
+	 * A capture_work instance that read streaming==true before the
+	 * WRITE_ONCE above may have called mod_timer() just before
+	 * cancel_work_sync() returned.  Delete again to close that window.
+	 */
+	timer_delete_sync(&video->timer);
 
-	video->write_counter++;
-	spin_lock(&video->queue_int_lock);
-	spin_lock(&video->dqueue_int_lock);
-	if (!list_empty(&video->working_q)) {
-		done_frame = list_entry(video->working_q.next,
-					struct axiado_v4l2_frame, queue);
-		if (done_frame->buffer.flags & V4L2_BUF_FLAG_QUEUED) {
-			done_frame->buffer.flags |= V4L2_BUF_FLAG_DONE;
-			done_frame->buffer.flags &= ~V4L2_BUF_FLAG_QUEUED;
-			/*
-			 * Set the current time to done frame buffer's
-			 * timestamp. Users can use this information to judge
-			 * the frame's usage.
-			 */
-			ts = ktime_get_real();
-			ns = ktime_to_ns(ts);
+	INIT_LIST_HEAD(&drain);
+	spin_lock_irqsave(&video->buf_lock, flags);
+	list_splice_init(&video->pending, &drain);
+	spin_unlock_irqrestore(&video->buf_lock, flags);
 
-			done_frame->buffer.timestamp.tv_sec = ns / NSEC_PER_SEC;
-			done_frame->buffer.timestamp.tv_usec =
-				(ns % NSEC_PER_SEC) / NSEC_PER_USEC;
-
-			/* Added to the done queue */
-			list_del(video->working_q.next);
-			list_add_tail(&done_frame->queue, &video->done_q);
-
-			/* Wake up the queue */
-			video->cts = false;
-			video->enc_counter++;
-			wake_up_interruptible(&video->enc_queue);
-		} else
-			pr_err("ERROR: v4l2 capture: camera_callback: buffer not queued\n");
-	}
-
-	if (!list_empty(&video->ready_q)) {
-		ready_frame = list_entry(video->ready_q.next,
-					 struct axiado_v4l2_frame, queue);
-		ready_frame->buffer.flags |= V4L2_BUF_FLAG_QUEUED;
-		list_del(video->ready_q.next);
-		list_add_tail(&ready_frame->queue, &video->working_q);
-	}
-
-	spin_unlock(&video->dqueue_int_lock);
-	spin_unlock(&video->queue_int_lock);
-
-	return 0;
-}
-
-/*
- * V4L2 interface - Function to read frame data from the physical memory
- * @param	struct timer_list *t
- * @return	None
- */
-static void axiado_video_v4l2_read(struct timer_list *t)
-{
-	int ret = -EINVAL;
-	static int index;
-	struct axiado_video *video;
-	struct v4l2_poll_frame *new_timer;
-
-	new_timer =  timer_container_of(new_timer, t, timer);
-	video = v4l2_poll.video;
-	if (video == NULL)
-		return;
-
-	/* Prepare the V4L2 buffer structure */
-	if (index >= frame_count)
-		index = 0;
-
-	if (video->frame[index].vaddress) {
-		/* Copy the frame data from the physical address mapped */
-		memcpy(video->frame[index].vaddress, video->addr,
-		       video->v2f.fmt.pix.sizeimage);
-
-		video->frame[index].buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		video->frame[index].buffer.index = index;
-		video->frame[index].buffer.memory = V4L2_MEMORY_MMAP;
-		video->frame[index].buffer.bytesused =
-			video->v2f.fmt.pix.sizeimage;
-
-		/* Put the frame into queue */
-		ret = axiado_v4l2_load_frame(video);
-		if (ret) {
-			pr_err("%s : Error loading frame\n", __func__);
-		} else {
-			index++;
-			/* Begin the countdown for next read */
-			mod_timer(&new_timer->timer, jiffies + frame_interval);
-		}
-	} else {
-		pr_err("%s : Memory not allocated ...\n", __func__);
-		return;
+	list_for_each_entry_safe(buf, tmp, &drain, link) {
+		list_del_init(&buf->link);
+		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 	}
 }
 
-/*
- * V4L2 interface - write function copy data from userspace
- * @param	struct file *, const char __user *, size_t, loff_t
- * @return	0 on success, on error -EPIPE, -ERESTARTSYS, -ENOMEM
- */
-static ssize_t axiado_video_v4l2_write(struct file *file,
-				      const char __user *buffer, size_t count,
-				      loff_t *ppos)
-{
-	int ret = -EINVAL;
-	unsigned long frame_interval = 0;
-	static int index;
-	struct video_device *dev;
-	struct axiado_video *video;
-
-	dev = video_devdata(file);
-	if (dev == NULL)
-		return -EINVAL;
-	video = video_get_drvdata(dev);
-	if (video == NULL)
-		return -EINVAL;
-
-	/* Prepare the V4L2 buffer structure */
-	if (index >= frame_count)
-		index = 0;
-
-	if (!wait_event_interruptible_timeout(video->write_queue,
-					      video->capture_on, 10 * HZ)) {
-		pr_err("ERROR: %s() timeout write_queue\n", __func__);
-		return -EPIPE;
-	} else if (signal_pending(current)) {
-		pr_err("ERROR: %s() interrupt received\n", __func__);
-		return -ERESTARTSYS;
-	}
-
-	frame_interval = (HZ / video->standard.frameperiod.denominator);
-	if (!wait_event_interruptible_timeout(video->write_queue, video->cts,
-					      frame_interval))
-		video->cts = true;
-
-	if (!wait_event_interruptible_timeout(
-		    video->load_queue, video->write_counter < frame_count,
-		    2 * HZ)) {
-		pr_err("ERROR: %s() timeout load_queue\n", __func__);
-		return -EPIPE;
-	} else if (signal_pending(current)) {
-		pr_err("ERROR: %s() interrupt received\n", __func__);
-		return -ERESTARTSYS;
-	}
-
-	if (video->frame[index].vaddress) {
-		ret = copy_from_user(video->frame[index].vaddress, (u8 *)buffer,
-				     count);
-		if (ret) {
-			ret = -ENOMEM;
-			goto exit1;
-		}
-
-		if (count > video->v2f.fmt.pix.sizeimage) {
-			pr_err("Invalid Frame Size\n");
-			return -EINVAL;
-		}
-
-		video->frame[index].buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		video->frame[index].buffer.index = index;
-		video->frame[index].buffer.memory = V4L2_MEMORY_MMAP;
-		video->frame[index].buffer.bytesused = count;
-
-		ret = axiado_v4l2_load_frame(video);
-		if (ret) {
-			pr_err("%s : Error loading frame\n", __func__);
-			ret = -ENOMEM;
-		} else {
-			ret = count;
-			index++;
-		}
-	} else {
-		pr_err("%s : Memory not allocated ...\n", __func__);
-		ret = -ENOMEM;
-	}
-
-exit1:
-	return ret;
-}
-
-/*
- * V4L2 interface - ioctls calls function
- * @param	struct file*, unsigned int, void *
- * @return	0 success, -ENODEV, -1 on errors
- */
-static long axiado_v4l2_do_ioctl(struct file *file, unsigned int ioctlcmd,
-				void *arg)
-{
-	struct video_device *dev;
-	struct axiado_video *video;
-	unsigned long lock_flags;
-	int ret = 0;
-
-	dev = video_devdata(file);
-	if (dev == NULL)
-		return -EINVAL;
-	video = video_get_drvdata(dev);
-	if (video == NULL)
-		return -EINVAL;
-	if (ioctlcmd != VIDIOC_DQBUF) {
-		if (down_interruptible(&video->busy_lock)) {
-			pr_info("busy_lock\n");
-			return -EBUSY;
-		}
-	}
-
-	switch (ioctlcmd) {
-	case VIDIOC_QUERYCAP: {
-		struct v4l2_capability *cap = arg;
-
-		strscpy(cap->driver, dev->name, sizeof(cap->driver));
-		cap->capabilities = dev->device_caps;
-		break;
-	}
-
-	case VIDIOC_REQBUFS: {
-		struct v4l2_requestbuffers *req = arg;
-
-		if ((req->count <= 0) || (req->count > FRAME_NUM)) {
-			pr_err("ERROR: v4l2 capture: VIDIOC_REQBUFS: not enough buffers\n");
-			req->count = FRAME_NUM;
-			ret = -EINVAL;
-			break;
-		}
-
-		if (req->type != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
-			pr_err("ERROR: v4l2 capture: VIDIOC_REQBUFS: wrong buffer type\n");
-			ret = -EINVAL;
-			break;
-		}
-		axiado_streamoff(video);
-		if (req->memory & V4L2_MEMORY_MMAP) {
-			axiado_free_frame_buf(video);
-			ret = axiado_allocate_frame_buf(video, req->count);
-			frame_count = req->count;
-		}
-		break;
-	}
-
-	case VIDIOC_QUERYBUF: {
-		struct v4l2_buffer *buf = arg;
-		int index = buf->index;
-
-		if (buf->type != V4L2_BUF_TYPE_VIDEO_CAPTURE) {
-			ret = -EINVAL;
-			break;
-		}
-		if (buf->memory & V4L2_MEMORY_MMAP) {
-			memset(buf, 0, sizeof(struct v4l2_buffer));
-			buf->index = index;
-			buf->memory = V4L2_MEMORY_MMAP;
-		}
-		down(&video->param_lock);
-		if (buf->memory & V4L2_MEMORY_MMAP)
-			ret = axiado_v4l2_buffer_status(video, buf);
-		up(&video->param_lock);
-		break;
-	}
-
-	case VIDIOC_G_FMT: {
-		struct v4l2_format *fmt = arg;
-
-		ret = axiado_v4l2_g_fmt(video, fmt);
-		break;
-	}
-
-	case VIDIOC_S_PARM: {
-		struct v4l2_streamparm *parm = arg;
-
-		ret = axiado_v4l2_s_param(video, parm);
-		break;
-	}
-
-	case VIDIOC_S_CTRL: {
-		struct v4l2_control *ctrl = arg;
-
-		video->ctrl.id = ctrl->id;
-		video->ctrl.value = ctrl->value;
-		ret = 0;
-		break;
-	}
-	case VIDIOC_QUERY_DV_TIMINGS: {
-		struct v4l2_dv_timings *timings = arg;
-
-		timings->type = V4L2_DV_BT_656_1120;
-		timings->bt.width = video->v2f.fmt.pix.width;
-		timings->bt.height = video->v2f.fmt.pix.height;
-		ret = 0;
-		break;
-	}
-
-	case VIDIOC_QBUF: {
-		struct v4l2_buffer *buf = arg;
-		int index = buf->index;
-
-		spin_lock_irqsave(&video->queue_int_lock, lock_flags);
-		video->frame[index].buffer.m.offset = buf->m.offset;
-		if ((video->frame[index].buffer.flags & 0x7) ==
-		    V4L2_BUF_FLAG_MAPPED) {
-			video->frame[index].buffer.flags |=
-				V4L2_BUF_FLAG_QUEUED;
-			list_add_tail(&video->frame[index].queue,
-				      &video->ready_q);
-		} else if (video->frame[index].buffer.flags &
-			   V4L2_BUF_FLAG_QUEUED) {
-			pr_err("ERROR: v4l2 capture: VIDIOC_QBUF: buffer already queued\n");
-			ret = -EINVAL;
-		} else if (video->frame[index].buffer.flags &
-			   V4L2_BUF_FLAG_DONE) {
-			pr_err("ERROR: v4l2 capture: VIDIOC_QBUF: overwrite done buffer.\n");
-			video->frame[index].buffer.flags &= ~V4L2_BUF_FLAG_DONE;
-			video->frame[index].buffer.flags |=
-				V4L2_BUF_FLAG_QUEUED;
-			ret = -EINVAL;
-		}
-		buf->flags = video->frame[index].buffer.flags;
-		spin_unlock_irqrestore(&video->queue_int_lock, lock_flags);
-		break;
-	}
-
-	case VIDIOC_DQBUF: {
-		struct v4l2_buffer *buf = arg;
-
-		ret = axiado_v4l2_dqueue(video, buf);
-		break;
-	}
-
-	case VIDIOC_STREAMON: {
-		ret = axiado_video_v4l2_streamon(video);
-		break;
-	}
-
-	case VIDIOC_STREAMOFF: {
-		ret = axiado_streamoff(video);
-		break;
-	}
-
-	default: {
-		pr_info("Error parsing the IOCTL - |%x|\n\n", ioctlcmd);
-		ret = -EINVAL;
-		break;
-	}
-	}
-
-	if (ioctlcmd != VIDIOC_DQBUF)
-		up(&video->busy_lock);
-
-	return ret;
-}
-
-/*
- * V4L interface - ioctl function
- * @param	struct file *, unsigned int, unsigned long
- * @return	0 on success, on error appropriate error code is returned
- */
-static long axiado_v4l2_ioctl(struct file *file, unsigned int cmd,
-			     unsigned long arg)
-{
-	return video_usercopy(file, cmd, arg, axiado_v4l2_do_ioctl);
-}
-
-/*
- * V4L2 interface file operations mmap function
- * @param	struct file *, struct vm_area_struct *
- * @return	0 Success, EINTR busy lock error, ENOBUFS remap_page error
- */
-static int axiado_video_mmap(struct file *file, struct vm_area_struct *vma)
-{
-	struct axiado_video *video;
-	struct video_device *dev;
-	unsigned long size;
-	int res = 0;
-
-	if (vma == NULL)
-		return -EINVAL;
-	dev = video_devdata(file);
-	if (dev == NULL)
-		return -EINVAL;
-	video = video_get_drvdata(dev);
-	if (video == NULL)
-		return -EINVAL;
-
-	pr_debug("\npgoff=0x%lx, start=0x%lx, end=0x%lx\n", vma->vm_pgoff,
-		 vma->vm_start, vma->vm_end);
-
-	/* make this _really_ smp-safe */
-	if (down_interruptible(&video->busy_lock))
-		return -EINTR;
-
-	size = vma->vm_end - vma->vm_start;
-	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
-
-	if (remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, size,
-			    vma->vm_page_prot)) {
-		pr_err("ERROR: v4l2 capture: %s : remap_pfn_range failed\n",
-		       __func__);
-		res = -ENOBUFS;
-	} else {
-		vm_flags_clear(vma, VM_IO); /* using shared anonymous pages */
-	}
-	up(&video->busy_lock);
-
-	return res;
-}
-
-static const struct v4l2_file_operations axiado_video_v4l2_fops = {
-	.owner = THIS_MODULE,
-	.open = axiado_video_v4l2_open,
-	.release = axiado_video_v4l2_release,
-	.write = axiado_video_v4l2_write,
-	.unlocked_ioctl = axiado_v4l2_ioctl,
-	.mmap = axiado_video_mmap,
+static const struct vb2_ops axiado_video_vb2_ops = {
+	.queue_setup		= axiado_video_queue_setup,
+	.buf_prepare		= axiado_video_buf_prepare,
+	.buf_queue		= axiado_video_buf_queue,
+	.start_streaming	= axiado_video_start_streaming,
+	.stop_streaming		= axiado_video_stop_streaming,
 };
 
-/*
- * This function is called to probe the devices if registered.
- * @param	pdev  the device structure used to give information on which device
- * @return	The function returns 0 on success and -1 on failure.
- */
-static int axiado_v4l2_probe(struct platform_device *pdev)
+static int axiado_video_querycap(struct file *file, void *fh,
+				struct v4l2_capability *cap)
 {
-	int ret;
-	struct axiado_video *video;
-	struct v4l2_device *v4l2_dev;
-	struct video_device *vdev;
-	struct device_node *v4l2_node, *pci_node;
-	struct resource res;
+	struct axiado_video *video = video_drvdata(file);
 
-	pr_info("V4L2 probe started\n");
-	video = devm_kzalloc(&pdev->dev, sizeof(*video), GFP_KERNEL);
+	strscpy(cap->driver, AXIADO_VIDEO_DRIVER_NAME, sizeof(cap->driver));
+	strscpy(cap->card, AXIADO_VIDEO_CARD_NAME, sizeof(cap->card));
+	snprintf(cap->bus_info, sizeof(cap->bus_info), "platform:%s",
+		 dev_name(video->dev));
+	return 0;
+}
+
+static int axiado_video_enum_fmt(struct file *file, void *fh,
+				struct v4l2_fmtdesc *f)
+{
+	if (f->index >= ARRAY_SIZE(axiado_video_formats))
+		return -EINVAL;
+	f->pixelformat = axiado_video_formats[f->index].fourcc;
+	return 0;
+}
+
+static int axiado_video_g_fmt(struct file *file, void *fh,
+			     struct v4l2_format *f)
+{
+	struct axiado_video *video = video_drvdata(file);
+
+	f->fmt.pix = video->pix_fmt;
+	return 0;
+}
+
+/*
+ * Reject formats whose sizeimage, or whose 4-bpp XBGR32 source read for
+ * RGB24/YUYV, would not fit in the mapped shared region.  Shared by
+ * TRY_FMT, S_FMT and S_DV_TIMINGS so all three ioctls agree on which
+ * formats are actually usable.
+ */
+static int axiado_video_check_addr_size(const struct axiado_video *video,
+					const struct v4l2_pix_format *p)
+{
+	if (p->sizeimage > video->addr_size) {
+		dev_dbg(video->dev,
+			"sizeimage %u exceeds shared region %zu\n",
+			p->sizeimage, video->addr_size);
+		return -EINVAL;
+	}
+
+	if ((p->pixelformat == V4L2_PIX_FMT_RGB24 ||
+	     p->pixelformat == V4L2_PIX_FMT_YUYV) &&
+	    (size_t)p->width * p->height * 4 > video->addr_size) {
+		dev_dbg(video->dev,
+			"source size %zu exceeds shared region %zu\n",
+			(size_t)p->width * p->height * 4, video->addr_size);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int axiado_video_try_fmt(struct file *file, void *fh,
+			       struct v4l2_format *f)
+{
+	struct axiado_video *video = video_drvdata(file);
+	const struct axiado_video_format *fmt;
+
+	fmt = axiado_video_lookup_format(f->fmt.pix.pixelformat);
+	if (!fmt)
+		fmt = &axiado_video_formats[0];
+
+	axiado_video_clamp_size(&f->fmt.pix);
+	axiado_video_apply_format(&f->fmt.pix, fmt);
+
+	return axiado_video_check_addr_size(video, &f->fmt.pix);
+}
+
+static int axiado_video_s_fmt(struct file *file, void *fh,
+			     struct v4l2_format *f)
+{
+	struct axiado_video *video = video_drvdata(file);
+	int ret;
+
+	if (vb2_is_busy(&video->queue))
+		return -EBUSY;
+
+	ret = axiado_video_try_fmt(file, fh, f);
+	if (ret)
+		return ret;
+
+	video->pix_fmt = f->fmt.pix;
+	return 0;
+}
+
+static int axiado_video_enum_framesizes(struct file *file, void *fh,
+				       struct v4l2_frmsizeenum *fsize)
+{
+	if (fsize->index)
+		return -EINVAL;
+	if (!axiado_video_lookup_format(fsize->pixel_format))
+		return -EINVAL;
+	fsize->type = V4L2_FRMSIZE_TYPE_CONTINUOUS;
+	fsize->stepwise.min_width  = AXIADO_VIDEO_MIN_WIDTH;
+	fsize->stepwise.min_height = AXIADO_VIDEO_MIN_HEIGHT;
+	fsize->stepwise.max_width  = AXIADO_VIDEO_MAX_WIDTH;
+	fsize->stepwise.max_height = AXIADO_VIDEO_MAX_HEIGHT;
+	fsize->stepwise.step_width  = 2;
+	fsize->stepwise.step_height = 2;
+	return 0;
+}
+
+static int axiado_video_enum_input(struct file *file, void *fh,
+				  struct v4l2_input *inp)
+{
+	if (inp->index)
+		return -EINVAL;
+	strscpy(inp->name, "Camera", sizeof(inp->name));
+	inp->type = V4L2_INPUT_TYPE_CAMERA;
+	inp->capabilities = V4L2_IN_CAP_DV_TIMINGS;
+	return 0;
+}
+
+static int axiado_video_g_input(struct file *file, void *fh, unsigned int *i)
+{
+	*i = 0;
+	return 0;
+}
+
+static int axiado_video_s_input(struct file *file, void *fh, unsigned int i)
+{
+	return i ? -EINVAL : 0;
+}
+
+static int axiado_video_g_parm(struct file *file, void *fh,
+			      struct v4l2_streamparm *parm)
+{
+	struct axiado_video *video = video_drvdata(file);
+
+	if (parm->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return -EINVAL;
+	parm->parm.capture.capability = V4L2_CAP_TIMEPERFRAME;
+	parm->parm.capture.timeperframe.numerator = 1;
+	parm->parm.capture.timeperframe.denominator = READ_ONCE(video->fps);
+	parm->parm.capture.readbuffers = AXIADO_VIDEO_MIN_BUFFERS;
+	return 0;
+}
+
+static int axiado_video_s_parm(struct file *file, void *fh,
+			      struct v4l2_streamparm *parm)
+{
+	struct axiado_video *video = video_drvdata(file);
+	unsigned int num, denom, fps;
+
+	if (parm->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return -EINVAL;
+
+	if (vb2_is_busy(&video->queue))
+		return -EBUSY;
+
+	num = parm->parm.capture.timeperframe.numerator;
+	denom = parm->parm.capture.timeperframe.denominator;
+	if (!num || !denom)
+		return -EINVAL;
+	fps = clamp(denom / num, 1u, 120u);
+
+	WRITE_ONCE(video->fps, fps);
+	WRITE_ONCE(video->frame_interval, max(1u, HZ / fps));
+
+	parm->parm.capture.capability = V4L2_CAP_TIMEPERFRAME;
+	parm->parm.capture.timeperframe.numerator = 1;
+	parm->parm.capture.timeperframe.denominator = fps;
+	parm->parm.capture.readbuffers = AXIADO_VIDEO_MIN_BUFFERS;
+	return 0;
+}
+
+/*
+ * No digital-video receiver is present; synthesise BT.656/1120 timings
+ * from pix_fmt so that clients using VIDIOC_G/S_DV_TIMINGS to set
+ * the capture geometry see consistent width and height across all ioctls.
+ */
+static void axiado_video_fill_timings(const struct axiado_video *video,
+				      struct v4l2_dv_timings *timings)
+{
+	memset(timings, 0, sizeof(*timings));
+	timings->type = V4L2_DV_BT_656_1120;
+	timings->bt.width = video->pix_fmt.width;
+	timings->bt.height = video->pix_fmt.height;
+	timings->bt.interlaced = V4L2_DV_PROGRESSIVE;
+}
+
+/*
+ * Read the mode the host is actually driving from the control mailbox,
+ * falling back to the configured capture format if it isn't mapped or
+ * hasn't been written yet.
+ */
+static void axiado_video_detect_timings(const struct axiado_video *video,
+					struct v4l2_dv_timings *timings)
+{
+	u32 width, height;
+
+	if (video->ctrl_reg) {
+		width = ioread32(video->ctrl_reg + AX_DP_MODE_DATA);
+		height = ioread32(video->ctrl_reg + AX_DP_MODE_DATA + 4);
+
+		if (width >= AXIADO_VIDEO_MIN_WIDTH &&
+		    width <= AXIADO_VIDEO_MAX_WIDTH &&
+		    height >= AXIADO_VIDEO_MIN_HEIGHT &&
+		    height <= AXIADO_VIDEO_MAX_HEIGHT) {
+			memset(timings, 0, sizeof(*timings));
+			timings->type = V4L2_DV_BT_656_1120;
+			timings->bt.width = width & ~1u;
+			timings->bt.height = height & ~1u;
+			timings->bt.interlaced = V4L2_DV_PROGRESSIVE;
+			return;
+		}
+	}
+
+	axiado_video_fill_timings(video, timings);
+}
+
+static int axiado_video_s_dv_timings(struct file *file, void *fh,
+		struct v4l2_dv_timings *timings)
+{
+	struct axiado_video *video = video_drvdata(file);
+	const struct axiado_video_format *fmt;
+	struct v4l2_pix_format pix;
+	int ret;
+
+	if (timings->type != V4L2_DV_BT_656_1120)
+		return -EINVAL;
+
+	if (vb2_is_busy(&video->queue))
+		return -EBUSY;
+
+	pix = video->pix_fmt;
+	pix.width  = timings->bt.width;
+	pix.height = timings->bt.height;
+	axiado_video_clamp_size(&pix);
+
+	fmt = axiado_video_lookup_format(pix.pixelformat);
+	if (!fmt)
+		fmt = &axiado_video_formats[0];
+	axiado_video_apply_format(&pix, fmt);
+
+	ret = axiado_video_check_addr_size(video, &pix);
+	if (ret)
+		return ret;
+
+	video->pix_fmt = pix;
+	axiado_video_fill_timings(video, timings);
+	return 0;
+}
+
+static int axiado_video_g_dv_timings(struct file *file, void *fh,
+		struct v4l2_dv_timings *timings)
+{
+	axiado_video_fill_timings(video_drvdata(file), timings);
+	return 0;
+}
+
+static int axiado_video_query_dv_timings(struct file *file, void *fh,
+		struct v4l2_dv_timings *timings)
+{
+	axiado_video_detect_timings(video_drvdata(file), timings);
+	return 0;
+}
+
+static int axiado_video_enum_dv_timings(struct file *file, void *fh,
+		struct v4l2_enum_dv_timings *timings)
+{
+	/* No predefined timings; resolution is set freely via S_DV_TIMINGS. */
+	return -EINVAL;
+}
+
+static int axiado_video_dv_timings_cap(struct file *file, void *fh,
+		struct v4l2_dv_timings_cap *cap)
+{
+	cap->type = V4L2_DV_BT_656_1120;
+	cap->bt.min_width  = AXIADO_VIDEO_MIN_WIDTH;
+	cap->bt.max_width  = AXIADO_VIDEO_MAX_WIDTH;
+	cap->bt.min_height = AXIADO_VIDEO_MIN_HEIGHT;
+	cap->bt.max_height = AXIADO_VIDEO_MAX_HEIGHT;
+	cap->bt.standards  = 0;
+	cap->bt.capabilities = V4L2_DV_BT_CAP_PROGRESSIVE;
+	return 0;
+}
+
+static const struct v4l2_ioctl_ops axiado_video_ioctl_ops = {
+	.vidioc_querycap		= axiado_video_querycap,
+	.vidioc_enum_fmt_vid_cap	= axiado_video_enum_fmt,
+	.vidioc_g_fmt_vid_cap		= axiado_video_g_fmt,
+	.vidioc_s_fmt_vid_cap		= axiado_video_s_fmt,
+	.vidioc_try_fmt_vid_cap		= axiado_video_try_fmt,
+	.vidioc_enum_framesizes		= axiado_video_enum_framesizes,
+	.vidioc_enum_input		= axiado_video_enum_input,
+	.vidioc_g_input			= axiado_video_g_input,
+	.vidioc_s_input			= axiado_video_s_input,
+	.vidioc_g_parm			= axiado_video_g_parm,
+	.vidioc_s_parm			= axiado_video_s_parm,
+	.vidioc_s_dv_timings		= axiado_video_s_dv_timings,
+	.vidioc_g_dv_timings		= axiado_video_g_dv_timings,
+	.vidioc_query_dv_timings	= axiado_video_query_dv_timings,
+	.vidioc_enum_dv_timings		= axiado_video_enum_dv_timings,
+	.vidioc_dv_timings_cap		= axiado_video_dv_timings_cap,
+	.vidioc_reqbufs			= vb2_ioctl_reqbufs,
+	.vidioc_create_bufs		= vb2_ioctl_create_bufs,
+	.vidioc_querybuf		= vb2_ioctl_querybuf,
+	.vidioc_qbuf			= vb2_ioctl_qbuf,
+	.vidioc_dqbuf			= vb2_ioctl_dqbuf,
+	.vidioc_prepare_buf		= vb2_ioctl_prepare_buf,
+	.vidioc_expbuf			= vb2_ioctl_expbuf,
+	.vidioc_streamon		= vb2_ioctl_streamon,
+	.vidioc_streamoff		= vb2_ioctl_streamoff,
+};
+
+static const struct v4l2_file_operations axiado_video_fops = {
+	.owner		= THIS_MODULE,
+	.open		= v4l2_fh_open,
+	.release	= vb2_fop_release,
+	.read		= vb2_fop_read,
+	.poll		= vb2_fop_poll,
+	.mmap		= vb2_fop_mmap,
+	.unlocked_ioctl	= video_ioctl2,
+};
+
+static int axiado_video_init_queue(struct axiado_video *video)
+{
+	struct vb2_queue *q = &video->queue;
+
+	q->type		= V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	q->io_modes	= VB2_MMAP | VB2_READ;
+	q->drv_priv	= video;
+	q->buf_struct_size = sizeof(struct axiado_video_buffer);
+	q->ops		= &axiado_video_vb2_ops;
+	q->mem_ops	= &vb2_vmalloc_memops;
+	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+	q->min_queued_buffers = AXIADO_VIDEO_MIN_BUFFERS;
+	q->lock		= &video->video_lock;
+
+	return vb2_queue_init(q);
+}
+
+/*
+ * Called when the last reference on v4l2_dev drops, i.e. after both
+ * vb2_video_unregister_device() has run in remove() AND all open file
+ * descriptors have been released.  This is the documented V4L2 lifetime
+ * mechanism for an embedded struct video_device (v4l2-dev.rst).
+ */
+static void axiado_v4l2_device_release(struct v4l2_device *v4l2_dev)
+{
+	struct axiado_video *video =
+		container_of(v4l2_dev, struct axiado_video, v4l2_dev);
+
+	memunmap(video->addr);
+	kfree(video);
+}
+
+static int axiado_video_probe(struct platform_device *pdev)
+{
+	struct axiado_video *video;
+	struct device_node *node;
+	struct resource res;
+	int ret;
+
+	video = kzalloc(sizeof(*video), GFP_KERNEL);
 	if (!video)
 		return -ENOMEM;
 
-	/* Checking the device tree node */
-	v4l2_node = of_find_compatible_node(NULL, NULL, "axiado,ax3000-video");
-	if (!v4l2_node) {
-		pr_err("%s: Cannot find v4l2 node in device tree\n", __func__);
-		return -ENODEV;
-	}
-
-	/* Parse the memory-region from the device tree */
-	pci_node = of_parse_phandle(v4l2_node, "memory-region", 0);
-	if (!pci_node) {
-		pr_err("%s: No memory-region specified\n", __func__);
-		return -EINVAL;
-	}
-
-	/* Reading the Physical address from the device tree */
-	if (of_address_to_resource(pci_node, 0, &res)) {
-		pr_err("%s: Cannot get memory resource from device tree\n",
-		       __func__);
-		return -EINVAL;
-	}
-
-	/* Mapping the Physical memory address */
-	video->addr = memremap(res.start, res.end - res.start, MEMREMAP_WB);
-	if (!video->addr) {
-		pr_err("%s: Physical address is not accessible\n", __func__);
-		return -ENOMEM;
-	}
-
-	v4l2_dev = &video->v4l2_dev;
-	vdev = &video->vdev;
-
 	video->dev = &pdev->dev;
-	video->capture_on = false;
-	video->cts = true;
-	video->v2f.fmt.pix.width = 640;
-	video->v2f.fmt.pix.height = 480;
+	platform_set_drvdata(pdev, video);
+
+	mutex_init(&video->video_lock);
+	spin_lock_init(&video->buf_lock);
+	INIT_LIST_HEAD(&video->pending);
+	timer_setup(&video->timer, axiado_video_timer_fn, 0);
+	INIT_WORK(&video->capture_work, axiado_video_capture_work);
+
+	video->pix_fmt.width  = AXIADO_VIDEO_DEF_WIDTH;
+	video->pix_fmt.height = AXIADO_VIDEO_DEF_HEIGHT;
+	axiado_video_apply_format(&video->pix_fmt, &axiado_video_formats[0]);
+	video->fps = AXIADO_VIDEO_DEF_FRAMERATE;
+	video->frame_interval = max(1u, HZ / AXIADO_VIDEO_DEF_FRAMERATE);
+
+	node = of_parse_phandle(pdev->dev.of_node, "memory-region", 0);
+	if (!node) {
+		ret = dev_err_probe(&pdev->dev, -EINVAL, "missing memory-region\n");
+		goto err_free;
+	}
+	ret = of_address_to_resource(node, 0, &res);
+	of_node_put(node);
+	if (ret) {
+		ret = dev_err_probe(&pdev->dev, ret, "memory-region address invalid\n");
+		goto err_free;
+	}
+
+	video->addr_size = resource_size(&res);
+	video->addr = memremap(res.start, video->addr_size, MEMREMAP_WC);
+	if (!video->addr) {
+		ret = dev_err_probe(&pdev->dev, -ENOMEM,
+				    "memremap of shared region failed\n");
+		goto err_free;
+	}
+
+	if (video->pix_fmt.sizeimage > video->addr_size) {
+		ret = dev_err_probe(&pdev->dev, -EINVAL,
+				    "shared region %zu too small for default %ux%u XBGR32 frame\n",
+				    video->addr_size,
+				    AXIADO_VIDEO_DEF_WIDTH, AXIADO_VIDEO_DEF_HEIGHT);
+		goto err_memunmap;
+	}
+
+	/* Optional control mailbox (second memory-region entry). */
+	node = of_parse_phandle(pdev->dev.of_node, "memory-region", 1);
+	if (node) {
+		struct resource ctrl_res;
+
+		ret = of_address_to_resource(node, 0, &ctrl_res);
+		of_node_put(node);
+		if (!ret) {
+			video->ctrl_reg = devm_memremap(&pdev->dev, ctrl_res.start,
+							resource_size(&ctrl_res),
+							MEMREMAP_WB);
+			if (!video->ctrl_reg)
+				dev_warn(&pdev->dev,
+					 "failed to map control mailbox; DV timings will echo capture format\n");
+		}
+	}
+
+	ret = v4l2_device_register(&pdev->dev, &video->v4l2_dev);
+	if (ret)
+		goto err_memunmap;
+	video->v4l2_dev.release = axiado_v4l2_device_release;
+
+	ret = axiado_video_init_queue(video);
+	if (ret)
+		goto err_v4l2_unreg;
+
+	video->vdev.fops	= &axiado_video_fops;
+	video->vdev.ioctl_ops	= &axiado_video_ioctl_ops;
+	video->vdev.v4l2_dev	= &video->v4l2_dev;
+	video->vdev.queue	= &video->queue;
+	video->vdev.lock	= &video->video_lock;
+	video->vdev.release	= video_device_release_empty;
+	video->vdev.vfl_dir	= VFL_DIR_RX;
+	video->vdev.device_caps	= V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING |
+				  V4L2_CAP_READWRITE;
+	strscpy(video->vdev.name, AXIADO_VIDEO_DRIVER_NAME,
+		sizeof(video->vdev.name));
+	video_set_drvdata(&video->vdev, video);
+
+	ret = video_register_device(&video->vdev, VFL_TYPE_VIDEO, -1);
+	if (ret) {
+		dev_err(&pdev->dev, "video_register_device: %d\n", ret);
+		goto err_v4l2_unreg;
+	}
+
+	dev_info(&pdev->dev, "registered as /dev/video%d\n",
+		 video->vdev.num);
+	return 0;
+
+err_v4l2_unreg:
+	v4l2_device_put(&video->v4l2_dev);
+	return ret;
+err_memunmap:
+	memunmap(video->addr);
+err_free:
+	kfree(video);
+	return ret;
+}
+
+static void axiado_video_remove(struct platform_device *pdev)
+{
+	struct axiado_video *video = platform_get_drvdata(pdev);
+
+	vb2_video_unregister_device(&video->vdev);
+	/*
+	 * Drop the reference held since v4l2_device_register().  If all file
+	 * descriptors are already closed this triggers axiado_v4l2_device_release
+	 * immediately; otherwise it fires when the last fd is released.
+	 */
+	v4l2_device_put(&video->v4l2_dev);
+}
+
+static int axiado_video_suspend(struct device *dev)
+{
+	struct axiado_video *video = dev_get_drvdata(dev);
+
+	if (!READ_ONCE(video->streaming))
+		return 0;
 
 	/*
-	 * IKVM calls VIDIOC_REQBUFS before VIDIOC_S_FMT ioctl. \
-	 * VIDIOC_REQBUFS will allocate the memory for buffers with the \
-	 * 'video->v2f.fmt.pix.sizeimage' value. VIDIOC_S_FMT is \
-	 * responsible for updating the 'video->v2f.fmt.pix.sizeimage'. \
-	 * Hence, it is better to set the frame format which has the \
-	 * maximum possible frame size in the probe function.
+	 * Clear streaming before stopping so that any capture_work instance
+	 * still executing won't re-arm the timer.  Apply the same
+	 * double-delete pattern used in stop_streaming to close the race
+	 * window between the work's READ_ONCE and the timer re-arm.
 	 */
-	video->v2f.fmt.pix.sizeimage =
-		video->v2f.fmt.pix.width * video->v2f.fmt.pix.height *
-		BYTES_PER_PIXEL; /* Expected frames are with 32bpp. */
-	video->v2f.fmt.pix.bytesperline =
-		video->v2f.fmt.pix.width * BYTES_PER_PIXEL;
-	video->v2f.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
-
-	video->standard.index = 0;
-	video->standard.id = V4L2_STD_UNKNOWN;
-	/* IKVM has a default framerate of 30FPS */
-	video->standard.frameperiod.denominator = 30;
-	video->standard.frameperiod.numerator = 1;
-	/* Setting the time interval between each frame read */
-	frame_interval = (HZ / video->standard.frameperiod.denominator);
-	video->standard.framelines = 480;
-	video->streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	video->streamparm.parm.capture.timeperframe =
-		video->standard.frameperiod;
-	video->streamparm.parm.capture.capability = V4L2_CAP_TIMEPERFRAME;
-
-	video->ctrl.id = V4L2_CID_JPEG_CHROMA_SUBSAMPLING;
-	video->ctrl.value =
-		V4L2_JPEG_CHROMA_SUBSAMPLING_420; //V4L2_JPEG_CHROMA_SUBSAMPLING_444;
-
-	ret = v4l2_device_register(video->dev, v4l2_dev);
-	if (ret) {
-		dev_err(video->dev, "Failed to register v4l2 device\n");
-		return ret;
-	}
-
-	vdev->fops = &axiado_video_v4l2_fops;
-	vdev->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_OUTPUT |
-			    V4L2_CAP_READWRITE | V4L2_CAP_STREAMING;
-	vdev->v4l2_dev = v4l2_dev;
-	strscpy(vdev->name, "axiado-v4l2", sizeof(vdev->name));
-	vdev->vfl_type = VFL_TYPE_VIDEO;
-	vdev->vfl_dir = VFL_DIR_RX;
-	vdev->release = video_device_release_empty;
-
-	sema_init(&video->param_lock, 1);
-	sema_init(&video->busy_lock, 1);
-	init_waitqueue_head(&video->write_queue);
-	init_waitqueue_head(&video->load_queue);
-	init_waitqueue_head(&video->enc_queue);
-	spin_lock_init(&video->queue_int_lock);
-	spin_lock_init(&video->dqueue_int_lock);
-
-	video_set_drvdata(vdev, video);
-	ret = video_register_device(vdev, VFL_TYPE_VIDEO, 0);
-	if (ret != 0) {
-		pr_err("video_register_device failed ret=%d\n", ret);
-		return ret;
-	}
-	pr_info("V4L2 probe finished\n");
+	WRITE_ONCE(video->streaming, false);
+	timer_delete_sync(&video->timer);
+	cancel_work_sync(&video->capture_work);
+	timer_delete_sync(&video->timer);
 	return 0;
 }
 
-/*
- * This function is called to remove the devices when device unregistered.
- * @param	pdev  the device structure used to give information
- * on which device remove
- * @return	The function returns 0 on success and -1 on failure.
- */
-static void axiado_v4l2_remove(struct platform_device *pdev)
+static int axiado_video_resume(struct device *dev)
 {
-	struct device *dev = &pdev->dev;
-	struct v4l2_device *v4l2_dev = dev_get_drvdata(dev);
-	struct axiado_video *video = to_axiado_video(v4l2_dev);
+	struct axiado_video *video = dev_get_drvdata(dev);
 
-	axiado_free_frame_buf(video);
-	axiado_free_frames(video);
-
-	/* Unmap the memory region */
-	if (video->addr)
-		memunmap(video->addr);
-
-	video_unregister_device(&video->vdev);
-	v4l2_device_unregister(v4l2_dev);
-	timer_delete_sync(&v4l2_poll.timer);
+	/*
+	 * vb2_is_streaming() is the authoritative source for whether capture
+	 * was active before suspend, since we cleared video->streaming above.
+	 */
+	if (vb2_is_streaming(&video->queue)) {
+		WRITE_ONCE(video->streaming, true);
+		mod_timer(&video->timer, jiffies + READ_ONCE(video->frame_interval));
+	}
+	return 0;
 }
 
-static const struct of_device_id axiado_v4l2_of_match[] = {
-	{
-		.compatible = "axiado,ax3000-video",
-	},
-	{ },
+static DEFINE_SIMPLE_DEV_PM_OPS(axiado_video_pm_ops,
+				axiado_video_suspend, axiado_video_resume);
+
+static const struct of_device_id axiado_video_of_match[] = {
+	{ .compatible = "axiado,ax3000-video" },
+	{ }
 };
+MODULE_DEVICE_TABLE(of, axiado_video_of_match);
 
-static struct platform_driver axiado_v4l2_driver = {
-	.driver	= {
-		.name = "axiado-video",
-		.owner = THIS_MODULE,
-		.of_match_table = axiado_v4l2_of_match,
+static struct platform_driver axiado_video_driver = {
+	.driver = {
+		.name		= AXIADO_VIDEO_DRIVER_NAME,
+		.of_match_table	= axiado_video_of_match,
+		.pm		= pm_sleep_ptr(&axiado_video_pm_ops),
 	},
-	.probe = axiado_v4l2_probe,
-	.remove = axiado_v4l2_remove,
+	.probe	= axiado_video_probe,
+	.remove	= axiado_video_remove,
 };
+module_platform_driver(axiado_video_driver);
 
-module_platform_driver(axiado_v4l2_driver);
-
-MODULE_AUTHOR("AXIADO CORPORATION");
-MODULE_DESCRIPTION("Axiado Video platform driver");
+MODULE_AUTHOR("Axiado Corporation");
+MODULE_DESCRIPTION("Axiado AX3000 V4L2 video capture driver");
 MODULE_LICENSE("GPL");
