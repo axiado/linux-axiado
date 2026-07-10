@@ -469,7 +469,8 @@ static irqreturn_t cdns_i2c_slave_isr(void *ptr)
 			  CDNS_I2C_IXR_RX_UNF | CDNS_I2C_IXR_TX_OVF)) {
 		id->slave_state = CDNS_I2C_SLAVE_STATE_IDLE;
 		i2c_slave_event(id->slave, I2C_SLAVE_STOP, NULL);
-		cdns_i2c_writereg(CDNS_I2C_CR_CLR_FIFO, CDNS_I2C_CR_OFFSET);
+		cdns_i2c_writereg(cdns_i2c_readreg(CDNS_I2C_CR_OFFSET) |
+				  CDNS_I2C_CR_CLR_FIFO, CDNS_I2C_CR_OFFSET);
 	}
 
 	return IRQ_HANDLED;
