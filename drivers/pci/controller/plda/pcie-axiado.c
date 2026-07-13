@@ -284,22 +284,27 @@ static int axiado_pcie_init(struct axiado_pcie *pcie)
 	temp = REG_PCIE_RESET_CTRL_HOLD_PIPE_RST_SET(temp, 1);
 	axiado_pcie_iowrite(pcie->ext, reset_ctrl_off, temp);
 
-	/* IP_CTRL: set EP mode, freq=500MHz, disable TL clock gating */
+	/* AX3005 EXT gen register (REG_PCIE_X1_GEN_OFF = REG_PCIE_X1_GEN_VAL) */
+	if (pcie->pcie_x1)
+		axiado_pcie_iowrite(pcie->ext, REG_PCIE_X1_GEN_OFF,
+				    REG_PCIE_X1_GEN_VAL);
+
+	/*
+	 * IP_CTRL: supported speed / EP select. Clear the speed field [11:0]
+	 * and program Gen4, preserving the upper bits.
+	 */
 	temp = axiado_pcie_ioread(pcie->ext, ip_ctrl_off);
-	temp = REG_PCIE_IP_CTRL_FREQ_SET(temp, AX_PCIE_TL_CLOCK_FREQ_MHZ);
-	temp = REG_PCIE_IP_CTRL_RP_NEP_SET(temp, 0);
-	temp = REG_PCIE_IP_CTRL_TL_CLK_GATE_EN_SET(temp, 0);
+	temp = (temp & PCIE_PHY_SPEED_MASK) | PCIE_PHY_GEN4;
 	axiado_pcie_iowrite(pcie->ext, ip_ctrl_off, temp);
 
-	/* GEN_SETTINGS: set port type, target speed, lane reversal, width */
-	temp = axiado_pcie_ioread(pcie->bridge, gen_settings_off);
-
-	temp = PCIE_K_SET_PCIE_PORT_TYPE_SET(temp, 0);
-	temp = PCIE_K_SET_LANE_REVERSAL_EN_SET(temp, 1);
-	if (pcie->pcie_x2)
+	/* GEN_SETTINGS: port type, lane reversal and width (x2 only) */
+	if (pcie->pcie_x2) {
+		temp = axiado_pcie_ioread(pcie->bridge, gen_settings_off);
+		temp = PCIE_K_SET_PCIE_PORT_TYPE_SET(temp, 0);
+		temp = PCIE_K_SET_LANE_REVERSAL_EN_SET(temp, 1);
 		temp = PCIE_K_SET_LINK_WIDTH_X2_SET(temp, 1);
-
-	axiado_pcie_iowrite(pcie->bridge, gen_settings_off, temp);
+		axiado_pcie_iowrite(pcie->bridge, gen_settings_off, temp);
+	}
 
 	if (pcie->is_vga) {
 		axiado_pcie_iowrite(pcie->bridge,
@@ -311,12 +316,9 @@ static int axiado_pcie_init(struct axiado_pcie *pcie)
 				PCIE_ETHERNET_CLASS_CODE);
 	}
 
-	/* PHYMAC_CFG: enable EQ phase 2/3, RXELECIDLE, RX valid filter, enhanced EQ */
+	/* PHYMAC_CFG: enable EQ phase 2/3 */
 	temp = axiado_pcie_ioread(pcie->bridge, REG_PCIE_PHYMAC_CFG_ADRS_OFFSET);
-	temp = PCIE_PHYMAC_CFG_PER_EQ_PHASE_2_3_SET(temp, 1);
-	temp = PCIE_PHYMAC_CFG_RXELECIDLE_SET(temp, 1);
-	temp = PCIE_PHYMAC_CFG_RX_VALID_FILTER_EN_SET(temp, 1);
-	temp = PCIE_PHYMAC_CFG_ENHANCE_EQ_SET(temp, 1);
+	temp |= PCIE_PHY_EQ_ENABLE;
 	axiado_pcie_iowrite(pcie->bridge, REG_PCIE_PHYMAC_CFG_ADRS_OFFSET, temp);
 
 	/* Configure Gen3/Gen4 EQ presets and tuning */
@@ -414,13 +416,13 @@ static int axiado_pcie_init(struct axiado_pcie *pcie)
 	pcie->ep_bar0_pci = 0;
 	pcie->ep_bar2_pci = 0;
 
-	/* Enable LTSSM — clear all disable bits [2:0] in CFGCTRL */
+	/* Enable LTSSM — clear DISABLE_LTSSM (bit 2) in CFGCTRL */
 	temp = axiado_pcie_ioread(pcie->bridge, REG_PCIE_PCIE_CFGCTRL_ADRS_OFFSET);
 	dev_info(pcie->dev, "LTSSM enable [0x%llx]: 0x%x -> 0x%x\n",
 			(u64)pcie->bridge_phys + REG_PCIE_PCIE_CFGCTRL_ADRS_OFFSET,
-			temp, temp & PCIE_PHY_CONF_CTRL_LTSSM_ALL);
+			temp, temp & PCIE_PHY_CONF_CTRL_LTSSM);
 	axiado_pcie_iowrite(pcie->bridge, REG_PCIE_PCIE_CFGCTRL_ADRS_OFFSET,
-			temp & PCIE_PHY_CONF_CTRL_LTSSM_ALL);
+			temp & PCIE_PHY_CONF_CTRL_LTSSM);
 	/* Start deferred EP link monitor — host may not be ready yet */
 	pcie->ep_link_up = false;
 	INIT_DELAYED_WORK(&pcie->ep_link_work,
@@ -615,7 +617,7 @@ static int __maybe_unused axiado_pcie_init_irq_domain(struct axiado_pcie *pcie)
 	/* Setup INTx */
 	pcie_intc_node = of_get_next_child(node, NULL);
 	if (!pcie_intc_node) {
-		dev_err(dev, "No PCIe Intc node found\n");
+		dev_err(dev, "No PCIe: Intc node found\n");
 		return -ENODEV;
 	}
 	pcie->irq_domain = irq_domain_add_linear(pcie_intc_node, PCI_NUM_INTX,

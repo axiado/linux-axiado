@@ -224,41 +224,33 @@ err_node_put:
 
 void axiado_pcie_config_eq_gen3_4(struct axiado_pcie *pcie)
 {
-	u8 lane;
-	u32 val1, val2;
-	u64 val;
-	u32 gen3_rx_tx_preset;
-	u32 gen4_rx_tx_preset;
+	u32 temp;
 
-	val1 = axiado_pcie_ioread(pcie->bridge, REG_PCIE_EQ_TUNING_31_0_ADRS_OFFSET);
-	val2 = axiado_pcie_ioread(pcie->bridge, REG_PCIE_EQ_TUNING_63_32_ADRS_OFFSET);
-	val = ((u64)val2 << 32) | (u64)val1;
+	/* PEX_SPC: enable EQ tuning / preset programming */
+	temp = axiado_pcie_ioread(pcie->bridge,
+				  REG_PCIE_X1_PCIE_PEX_SPC_ADRS_OFFSET);
+	temp |= 0x3000;
+	axiado_pcie_iowrite(pcie->bridge,
+			    REG_PCIE_X1_PCIE_PEX_SPC_ADRS_OFFSET, temp);
 
-	val = PCIE_EQ_TUNING_63_0_PRESET_TUNING_SETTINGS_SET(val, 2);
-	val = PCIE_EQ_TUNING_63_0_CONT_FINE_TUNE_EVEN_IF_NO_COEFF_SET(val, 1);
-	val = PCIE_EQ_TUNING_63_0_GEN3_PRESET_SET(val, PCIE_GEN3_PRESET_VECTOR);
-	val = PCIE_EQ_TUNING_63_0_GEN3_MAX_TUNING_ITER_SET(val, PCIE_GEN3_MAX_TUNING_ITER);
-	val = PCIE_EQ_TUNING_63_0_GEN4_PRESET_SET(val, PCIE_GEN4_PRESET_VECTOR);
-	val = PCIE_EQ_TUNING_63_0_GEN4_MAX_TUNING_ITER_SET(val, PCIE_GEN4_MAX_TUNING_ITER);
+	/* Gen4 (16G) RX/TX preset, lane 0 (bits [15:0]) */
+	temp = axiado_pcie_ioread(pcie->bridge,
+				  REG_PCIE_EQ_PRESET_16G_31_0_ADRS_OFFSET);
+	temp = (temp & ~PCIE_EQ_PRESET16_MASK) | PCIE_EQ_PRESET16_VAL;
+	axiado_pcie_iowrite(pcie->bridge,
+			    REG_PCIE_EQ_PRESET_16G_31_0_ADRS_OFFSET, temp);
 
-	val1 = (u32)(val & 0xFFFFFFFF);
-	val2 = (u32)((val >> 32) & 0xFFFFFFFF);
-	axiado_pcie_iowrite(pcie->bridge, REG_PCIE_EQ_TUNING_31_0_ADRS_OFFSET, val1);
-	axiado_pcie_iowrite(pcie->bridge, REG_PCIE_EQ_TUNING_63_32_ADRS_OFFSET, val2);
+	/* EQ tuning [31:0]: preset tuning settings + continuous fine tune */
+	temp = axiado_pcie_ioread(pcie->bridge,
+				  REG_PCIE_EQ_TUNING_31_0_ADRS_OFFSET);
+	temp = (temp & ~PCIE_EQ_TUNNING_31_0_MASK) | PCIE_EQ_TUNNING_31_0_VAL;
+	axiado_pcie_iowrite(pcie->bridge,
+			    REG_PCIE_EQ_TUNING_31_0_ADRS_OFFSET, temp);
 
-	gen3_rx_tx_preset = PCIE_GEN3_RX_TX_PRESET_GET(PCIE_GEN3_RX_PRESET,
-							PCIE_GEN3_TX_PRESET);
-	for (lane = 0; lane < 16; lane += 2)
-		axiado_pcie_iowrite(pcie->bridge,
-				    REG_PCIE_EQ_PRESET_8G_31_0_ADRS_OFFSET +
-				    sizeof(u32) * (lane / 2),
-				    gen3_rx_tx_preset);
-
-	gen4_rx_tx_preset = PCIE_GEN4_RX_TX_PRESET_GET(PCIE_GEN4_RX_PRESET,
-							PCIE_GEN4_TX_PRESET);
-	for (lane = 0; lane < 16; lane += 4)
-		axiado_pcie_iowrite(pcie->bridge,
-				    REG_PCIE_EQ_PRESET_16G_31_0_ADRS_OFFSET +
-				    sizeof(u32) * (lane / 4),
-				    gen4_rx_tx_preset);
+	/* EQ tuning [63:32]: Gen3/Gen4 preset vectors + max tuning iterations */
+	temp = axiado_pcie_ioread(pcie->bridge,
+				  REG_PCIE_EQ_TUNING_63_32_ADRS_OFFSET);
+	temp = (temp & ~PCIE_EQ_TUNNING_63_32_MASK) | PCIE_EQ_TUNNING_63_32_VAL;
+	axiado_pcie_iowrite(pcie->bridge,
+			    REG_PCIE_EQ_TUNING_63_32_ADRS_OFFSET, temp);
 }
