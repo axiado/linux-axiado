@@ -7794,8 +7794,9 @@ F:	drivers/gpu/drm/ast/
 
 DRM DRIVER FOR AXIADO
 M:	Shubhangini G <shubhangini@axiado.com>
+M:	Tzu-Hao Wei <twei@axiado.com>
 M:	Prasad Bolisetty <pbolisetty@axiado.com>
-L:	linux-phy@lists.infradead.org (moderated for non-subscribers)
+L:	dri-devel@lists.freedesktop.org
 S:	Maintained
 F:	Documentation/devicetree/bindings/display/axiado/
 F:	drivers/gpu/drm/axiado/

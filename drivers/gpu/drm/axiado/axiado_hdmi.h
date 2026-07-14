@@ -1,23 +1,24 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Copyright (C) 2022-2025 Axiado Corporation.
+ * Copyright (C) 2022-2026 Axiado Corporation.
  */
 
 #ifndef __AXIADO_HDMI_H__
 #define __AXIADO_HDMI_H__
+
 #include <linux/i2c.h>
 #include <linux/debugfs.h>
+#include <linux/workqueue.h>
+#include <drm/drm_encoder.h>
+#include <drm/drm_connector.h>
+
 #define DDC_SEGMENT_ADDR 0x30
 
-enum PWR_MODE {
-	NORMAL,
-	LOWER_PWR,
+enum axiado_hdmi_pwr_mode {
+	AXIADO_HDMI_PWR_NORMAL,
+	AXIADO_HDMI_PWR_STANDBY,
 };
-struct axiado_crtc_state {
-	struct drm_crtc_state base;
-	int output_type;
-	int output_mode;
-};
+
 struct hdmi_data_info {
 	int vic;
 	bool sink_is_hdmi;
@@ -26,6 +27,7 @@ struct hdmi_data_info {
 	unsigned int enc_out_format;
 	unsigned int colorimetry;
 };
+
 struct axiado_hdmi_i2c {
 	struct i2c_adapter adap;
 
@@ -35,6 +37,7 @@ struct axiado_hdmi_i2c {
 	struct mutex lock;
 	struct completion cmp;
 };
+
 struct axiado_hdmi {
 	struct device *dev;
 	struct drm_device *drm_dev;
@@ -45,8 +48,8 @@ struct axiado_hdmi {
 	void __iomem *regs;
 	void __iomem *data_reg;
 
-	struct drm_connector connector;
 	struct drm_encoder encoder;
+	struct drm_connector connector;
 
 	struct axiado_hdmi_i2c *i2c;
 	struct i2c_adapter *ddc;
@@ -56,50 +59,18 @@ struct axiado_hdmi {
 	struct hdmi_data_info hdmi_data;
 	struct drm_display_mode previous_mode;
 	struct dentry *debugfs;
-};
-struct axiado_crtc {
-	struct drm_crtc base;
-	bool disconnected;
-	unsigned int crtc_id;
-	u32 fb_offset;
-	bool cursor_enabled;
-	u32 x_hint;
-	u32 y_hint;
-	/**
-	 * When setting a mode we not only pass the mode to the hypervisor,
-	 * but also information on how to map/translate input coordinates
-	 * for the emulated USB tablet.  This input-mapping may change when
-	 * the mode on *another* crtc changes.
-	 *
-	 * Sometimes it is necessary to perform a modeset on another crtc-s other
-	 * than the one being modified to update the input mapping. This includes
-	 * CRTCs that might be inactive within the guest environment, appearing
-	 * as black windows on the host until closed by the user.
-	 *
-	 * In atomic modesetting, when CRTCs are disabled, their mode information is cleared.
-	 * However, we require this information when updating the input mapping to prevent
-	 * unintentional window resizing due to a mode change on a different CRTC.
-	 * Therefore, we store and retain the last known mode information for future use.
+
+	/*
+	 * One-shot HPD re-probe scheduled at bind. On the USB-C / DP-Alt
+	 * topology the bridge chain (PD chip → DP chip → USB-C) negotiates
+	 * after the kernel has already finished its initial connector
+	 * probe, so the first .detect can return disconnected even with a
+	 * monitor plugged in. Firing drm_helper_hpd_irq_event() once a few
+	 * seconds after bind makes fbdev pick up the late HPD edge without
+	 * the user having to physically replug.
 	 */
-	u32 width;
-	u32 height;
-	u32 x;
-	u32 y;
+	struct delayed_work hpd_probe_work;
 };
-struct axiado_connector {
-	struct drm_connector base;
-	char name[32];
-	struct axiado_crtc *axiado_crtc;
-	struct {
-		u32 width;
-		u32 height;
-		bool disconnected;
-	} mode_hint;
-};
-
-#define to_axiado_connector(x) container_of(x, struct axiado_connector, base)
-
-#define to_axiado_crtc_state(s) container_of(s, struct axiado_crtc_state, base)
 
 #define AXIADO_OUT_MODE_P888 0
 
@@ -107,27 +78,27 @@ struct axiado_connector {
 #define DDC_BUS_FREQ_L 0x12C
 #define DDC_BUS_FREQ_H 0x130
 
-/*HDMI Control register */
+/* HDMI Control register */
 #define HDMI_SYS_CTRL 0x000
-#define m_RST_ANALOG (1 << 6)
+#define m_RST_ANALOG BIT(6)
 #define v_RST_ANALOG (0 << 6)
-#define v_NOT_RST_ANALOG (1 << 6)
-#define m_RST_DIGITAL (1 << 5)
+#define v_NOT_RST_ANALOG BIT(6)
+#define m_RST_DIGITAL BIT(5)
 #define v_RST_DIGITAL (0 << 5)
-#define v_NOT_RST_DIGITAL (1 << 5)
-#define m_REG_CLK_INV (1 << 4)
+#define v_NOT_RST_DIGITAL BIT(5)
+#define m_REG_CLK_INV BIT(4)
 #define v_REG_CLK_NOT_INV (0 << 4)
-#define v_REG_CLK_INV (1 << 4)
-#define m_VCLK_INV (1 << 3)
+#define v_REG_CLK_INV BIT(4)
+#define m_VCLK_INV BIT(3)
 #define v_VCLK_NOT_INV (0 << 3)
-#define v_VCLK_INV (1 << 3)
-#define m_REG_CLK_SOURCE (1 << 2)
+#define v_VCLK_INV BIT(3)
+#define m_REG_CLK_SOURCE BIT(2)
 #define v_REG_CLK_SOURCE_TMDS (0 << 2)
-#define v_REG_CLK_SOURCE_SYS (1 << 2)
-#define m_POWER (1 << 1)
+#define v_REG_CLK_SOURCE_SYS BIT(2)
+#define m_POWER BIT(1)
 #define v_PWR_ON (0 << 1)
-#define v_PWR_OFF (1 << 1)
-#define m_INT_POL (1 << 0)
+#define v_PWR_OFF BIT(1)
+#define m_INT_POL BIT(0)
 #define v_INT_POL_HIGH 1
 #define v_INT_POL_LOW 0
 
@@ -136,11 +107,12 @@ struct axiado_connector {
 #define HDMI_SYS_CTRL1 0x004
 #define HDMI_SYS_CTRL2 0x008
 #define HDMI_CTRL2_VAL 0x34
+
 /* Input video format control register */
 #define HDMI_VIDEO_CONTRL1 0x004
 #define m_VIDEO_INPUT_FORMAT (7 << 1)
-#define m_DE_SOURCE (1 << 0)
-#define v_VIDEO_INPUT_FORMAT(n) (n << 1)
+#define m_DE_SOURCE BIT(0)
+#define v_VIDEO_INPUT_FORMAT(n) ((n) << 1)
 #define v_DE_EXTERNAL 1
 #define v_DE_INTERNAL 0
 
@@ -151,46 +123,40 @@ struct axiado_connector {
 #define HDMI_VIDEO_CONTRL2 0x008
 #define m_VIDEO_OUTPUT_COLOR (3 << 6)
 #define m_VIDEO_INPUT_BITS (3 << 4)
-#define m_VIDEO_INPUT_CSP (1 << 0)
+#define m_VIDEO_INPUT_CSP BIT(0)
 #define v_VIDEO_OUTPUT_COLOR(n) (((n)&0x3) << 6)
-#define v_VIDEO_INPUT_BITS(n) (n << 4)
-#define v_VIDEO_INPUT_CSP(n) (n << 0)
+#define v_VIDEO_INPUT_BITS(n) ((n) << 4)
+#define v_VIDEO_INPUT_CSP(n) ((n) << 0)
 
 /* Color space converter */
-#define HDMI_VIDEO_CONTRL 0x010
-#define m_VIDEO_AUTO_CSC (1 << 7)
-#define v_VIDEO_AUTO_CSC(n) (n << 7)
-#define m_VIDEO_C0_C2_SWAP (1 << 0)
-#define v_VIDEO_C0_C2_SWAP(n) (n << 0)
-
 #define HDMI_VIDEO_CONTRL3 0x010
-#define m_COLOR_DEPTH_NOT_INDICATED (1 << 4)
-#define m_SOF (1 << 3)
-#define m_COLOR_RANGE (1 << 2)
-#define m_CSC (1 << 0)
+#define m_COLOR_DEPTH_NOT_INDICATED BIT(4)
+#define m_SOF BIT(3)
+#define m_COLOR_RANGE BIT(2)
+#define m_CSC BIT(0)
 #define v_COLOR_DEPTH_NOT_INDICATED(n) ((n) << 4)
 #define v_SOF_ENABLE (0 << 3)
-#define v_SOF_DISABLE (1 << 3)
-#define v_COLOR_RANGE_FULL (1 << 2)
+#define v_SOF_DISABLE BIT(3)
+#define v_COLOR_RANGE_FULL BIT(2)
 #define v_COLOR_RANGE_LIMITED (0 << 2)
 #define v_CSC_ENABLE 1
 #define v_CSC_DISABLE 0
 
 #define HDMI_AV_MUTE 0x014
-#define m_AVMUTE_CLEAR (1 << 7)
-#define m_AVMUTE_ENABLE (1 << 6)
-#define m_AUDIO_MUTE (1 << 1)
-#define m_VIDEO_BLACK (1 << 0)
-#define v_AVMUTE_CLEAR(n) (n << 7)
-#define v_AVMUTE_ENABLE(n) (n << 6)
-#define v_AUDIO_MUTE(n) (n << 1)
-#define v_VIDEO_MUTE(n) (n << 0)
+#define m_AVMUTE_CLEAR BIT(7)
+#define m_AVMUTE_ENABLE BIT(6)
+#define m_AUDIO_MUTE BIT(1)
+#define m_VIDEO_BLACK BIT(0)
+#define v_AVMUTE_CLEAR(n) ((n) << 7)
+#define v_AVMUTE_ENABLE(n) ((n) << 6)
+#define v_AUDIO_MUTE(n) ((n) << 1)
+#define v_VIDEO_MUTE(n) ((n) << 0)
 
 #define HDMI_VIDEO_TIMING_CTL 0x020
-#define v_HSYNC_POLARITY(n) (n << 3)
-#define v_VSYNC_POLARITY(n) (n << 2)
-#define v_INETLACE(n) (n << 1)
-#define v_EXTERANL_VIDEO(n) (n << 0)
+#define v_HSYNC_POLARITY(n) ((n) << 3)
+#define v_VSYNC_POLARITY(n) ((n) << 2)
+#define v_INETLACE(n) ((n) << 1)
+#define v_EXTERANL_VIDEO(n) ((n) << 0)
 
 #define HDMI_VIDEO_EXT_HTOTAL_L 0x024
 #define HDMI_VIDEO_EXT_HTOTAL_H 0x028
@@ -206,7 +172,7 @@ struct axiado_connector {
 #define HDMI_VIDEO_EXT_VDELAY 0x050
 #define HDMI_VIDEO_EXT_VDURATION 0x054
 
-/* PLL as per 1280x720 resolution */
+/* PLL registers mapped to 32-bit AXI bounds */
 #define HDMI_PLL0 0x680
 #define HDMI_PLL0_VAL 0x01
 #define HDMI_PLL1 0x684
@@ -215,92 +181,65 @@ struct axiado_connector {
 #define HDMI_PLL2_VAL 0xf0
 #define HDMI_PLL3 0x68C
 #define HDMI_PLL3_VAL 0x63
-#define m_PLL3_DIVIDER_CTRL_5 (1 << 5)
-#define m_PLL3_DIVIDER_CTRL_4 (1 << 4)
-#define m_PLL3_DIVIDER_CTRL_3 (1 << 3)
-#define m_PLL3_DIVIDER_CTRL_2 (1 << 2)
-#define m_PLL3_DIVIDER_CTRL_1 (1 << 1)
-#define m_PLL3_DIVIDER_CTRL_0 (1 << 0)
-#define m_PLL3                                           \
-	(m_PLL3_DIVIDER_CTRL_0 | m_PLL3_DIVIDER_CTRL_1 | \
-	 m_PLL3_DIVIDER_CTRL_2 | m_PLL3_DIVIDER_CTRL_4 | \
-	 m_PLL3_DIVIDER_CTRL_5)
 
 #define HDMI_PLL4 0x690
 #define HDMI_PLL4_VAL 0x15
-#define m_PLL4_DIVIDER_CTRL_5 (1 << 5)
-#define m_PLL4_DIVIDER_CTRL_3 (1 << 3)
-#define m_PLL4_DIVIDER_CTRL_2 (1 << 2)
-#define m_PLL4_DIVIDER_CTRL_1 (1 << 1)
-#define m_PLL4_DIVIDER_CTRL_0 (1 << 0)
-#define m_PLL4                                           \
-	(m_PLL4_DIVIDER_CTRL_0 | m_PLL4_DIVIDER_CTRL_1 | \
-	 m_PLL4_DIVIDER_CTRL_2 | m_PLL4_DIVIDER_CTRL_3)
-#define m_PLL4_640                                       \
-	(m_PLL4_DIVIDER_CTRL_0 | m_PLL4_DIVIDER_CTRL_1 | \
-	 m_PLL4_DIVIDER_CTRL_2 | m_PLL4_DIVIDER_CTRL_3 | \
-	 m_PLL4_DIVIDER_CTRL_5)
 
 #define HDMI_PLL5 0x694
 #define HDMI_PLL5_VAL 0x41
-#define m_PLL5_DIVIDER_CTRL_5 (1 << 5)
-#define m_PLL5_DIVIDER_CTRL_3 (1 << 3)
-#define m_PLL5_DIVIDER_CTRL_2 (1 << 2)
-#define m_PLL5_DIVIDER_CTRL_1 (1 << 1)
-#define m_PLL5_DIVIDER_CTRL_0 (1 << 0)
-#define m_PLL5                                           \
-	(m_PLL5_DIVIDER_CTRL_0 | m_PLL5_DIVIDER_CTRL_1 | \
-	 m_PLL5_DIVIDER_CTRL_3 | m_PLL5_DIVIDER_CTRL_5)
 
 #define HDMI_PLL6 0x698
 #define HDMI_PLL6_VAL 0x42
-#define m_PLL6_DIVIDER_CTRL_5 (1 << 5)
-#define m_PLL6_DIVIDER_CTRL_2 (1 << 2)
-#define m_PLL6_DIVIDER_CTRL_1 (1 << 1)
+#define m_PLL6_DIVIDER_CTRL_5 BIT(5)
+#define m_PLL6_DIVIDER_CTRL_2 BIT(2)
+#define m_PLL6_DIVIDER_CTRL_1 BIT(1)
 #define m_PLL6 \
 	(m_PLL6_DIVIDER_CTRL_1 | m_PLL6_DIVIDER_CTRL_2 | m_PLL6_DIVIDER_CTRL_5)
 
-#define HDMI_PLL7 0x744
-#define HDMI_PLL7_VAL 0x00
-#define HDMI_PLL8 0x748
-#define HDMI_PLL8_VAL 0x00
-#define HDMI_PLL9 0x74c
-#define HDMI_PLL9_VAL 0x00
-#define HDMI_PLL10 0x680
-#define m_PLL10_DIVIDER_CTRL_0 (1 << 0)
+/*
+ * Pre-PLL analog registers — leave at reset defaults; writing 0 to
+ * these breaks PLL lock acquisition.
+ *   0x1a7: pre-PLL VCO/integral/proportional gain (reset 0x5a)
+ *   0x1a8: pre-PLL monitor control                (reset 0x80)
+ *   0x1a9: pre-PLL lock status (RO, bit [0] = locked)
+ */
+#define HDMI_PLL7 0x69c
+#define HDMI_PLL8 0x6a0
+#define HDMI_PLL9 0x6a4
 
-#define HDMI_PLL11 0x6a8
-#define m_PLL11_DIVIDER_CTRL_0 (1 << 0)
-#define HDMI_PLL11_VAL 0x0F
+/* Post-PLL Power Down Control and config (0x1aa) */
+#define HDMI_PLL10 0x6a8
+#define m_PLL10_DIVIDER_CTRL_0 BIT(0)
 
-#define HDMI_PLL12 0x6ac
+/* Post-PLL pre_div (0x1ab) */
+#define HDMI_PLL11 0x6ac
+#define HDMI_PLL11_VAL 0x01
 
-#define HDMI_PLL13 0x6b0
-#define HDMI_PLL13_VAL 0x14
-#define m_PLL13_DIVIDER_CTRL_6 (1 << 6)
-#define m_PLL13_DIVIDER_CTRL_2 (1 << 2)
-#define m_PLL13 (m_PLL13_DIVIDER_CTRL_2 | m_PLL13_DIVIDER_CTRL_6)
+/* Post-PLL fb_div LSB [7:0] (0x1ac) */
+#define HDMI_PLL12 0x6b0
 
+/* Post-PLL output divider / clock source (0x1ad) */
 #define HDMI_PLL14 0x6b4
-#define m_PLL14_DIVIDER_CTRL_2 (1 << 2)
 #define HDMI_PLL14_VAL 0x09
 
-#define HDMI_PRE_LOCK 0x6a4
-#define HDMI_POST_LOCK 0x6bc
+/* PLL lock-status registers (RO, bit [0]) */
+#define HDMI_PRE_LOCK 0x6a4   /* 0x1a9 */
+#define HDMI_POST_LOCK 0x6bc  /* 0x1af */
+#define m_PLL_LOCK BIT(0)
 
-/*Setting LDO registers */
+/* LDO registers */
 #define HDMI_LDO 0x6d0
-#define m_LDO_CTRL_DATA_CHANEEL2 (1 << 2)
-#define m_LDO_CTRL_DATA_CHANEEL1 (1 << 1)
-#define m_LDO_CTRL_DATA_CHANEEL0 (1 << 0)
+#define m_LDO_CTRL_DATA_CHANEEL2 BIT(2)
+#define m_LDO_CTRL_DATA_CHANEEL1 BIT(1)
+#define m_LDO_CTRL_DATA_CHANEEL0 BIT(0)
 #define m_HDMI_LDO                                             \
 	(m_LDO_CTRL_DATA_CHANEEL2 | m_LDO_CTRL_DATA_CHANEEL1 | \
 	 m_LDO_CTRL_DATA_CHANEEL0)
 
 #define HDMI_SERIAL 0x6f8
-#define m_SERIAL_CTRL_DATA_CHANEEL2 (1 << 6)
-#define m_SERIAL_CTRL_DATA_CHANEEL1 (1 << 5)
-#define m_SERIAL_CTRL_DATA_CHANEEL0 (1 << 4)
+#define m_SERIAL_CTRL_DATA_CHANEEL2 BIT(6)
+#define m_SERIAL_CTRL_DATA_CHANEEL1 BIT(5)
+#define m_SERIAL_CTRL_DATA_CHANEEL0 BIT(4)
 #define m_HDMI_SERIAL                                                \
 	(m_SERIAL_CTRL_DATA_CHANEEL2 | m_SERIAL_CTRL_DATA_CHANEEL1 | \
 	 m_SERIAL_CTRL_DATA_CHANEEL0)
@@ -318,8 +257,7 @@ struct axiado_connector {
 #define HDMI_RESET_VAL2 0x1F
 #define HDMI_REG_OFFSET 0x04
 
-
-/* sEtting HDMI VBIST */
+/* Setting HDMI VBIST */
 #define HDMI_VBIST 0x324
 #define VBIST_DISABLE 0x00
 #define VBIST_ENABLE 0x01
@@ -327,21 +265,14 @@ struct axiado_connector {
 #define HDMI_VIDEO_CSC_COEF 0x18
 
 #define HDMI_AUDIO_CTRL1 0x0d4
-
-#define v_CTS_SOURCE(n) (n << 7)
-
-#define v_DOWN_SAMPLE(n) (n << 5)
-
-#define v_AUDIO_SOURCE(n) (n << 3)
-
-#define v_MCLK_ENABLE(n) (n << 2)
-
+#define v_CTS_SOURCE(n) ((n) << 7)
+#define v_DOWN_SAMPLE(n) ((n) << 5)
+#define v_AUDIO_SOURCE(n) ((n) << 3)
+#define v_MCLK_ENABLE(n) ((n) << 2)
 #define v_MCLK_RATIO(n) (n)
 
 #define AUDIO_SAMPLE_RATE 0x0dc
-
 #define v_I2S_CHANNEL(n) ((n) << 2)
-
 #define v_I2S_MODE(n) (n)
 
 #define AUDIO_I2S_MAP 0x0e4
@@ -357,12 +288,13 @@ struct axiado_connector {
 #define N_192K 0x6000
 
 #define HDMI_AUDIO_CHANNEL_STATUS 0x3e
-#define m_AUDIO_STATUS_NLPCM (1 << 7)
-#define m_AUDIO_STATUS_USE (1 << 6)
-#define m_AUDIO_STATUS_COPYRIGHT (1 << 5)
+#define m_AUDIO_STATUS_NLPCM BIT(7)
+#define m_AUDIO_STATUS_USE BIT(6)
+#define m_AUDIO_STATUS_COPYRIGHT BIT(5)
 #define m_AUDIO_STATUS_ADDITION (3 << 2)
 #define m_AUDIO_STATUS_CLK_ACCURACY (2 << 0)
-#define v_AUDIO_STATUS_NLPCM(n) ((n & 1) << 7)
+#define v_AUDIO_STATUS_NLPCM(n) (((n)&1) << 7)
+
 #define AUDIO_N_H 0x0fc
 #define AUDIO_N_M 0x100
 #define AUDIO_N_L 0x101
@@ -381,14 +313,14 @@ struct axiado_connector {
 
 #define HDMI_PACKET_SEND_MANUAL 0x270
 #define HDMI_PACKET_SEND_AUTO 0x278
-#define m_PACKET_GCP_EN (1 << 7)
-#define m_PACKET_MSI_EN (1 << 6)
-#define m_PACKET_SDI_EN (1 << 5)
-#define m_PACKET_VSI_EN (1 << 4)
-#define v_PACKET_GCP_EN(n) ((n & 1) << 7)
-#define v_PACKET_MSI_EN(n) ((n & 1) << 6)
-#define v_PACKET_SDI_EN(n) ((n & 1) << 5)
-#define v_PACKET_VSI_EN(n) ((n & 1) << 4)
+#define m_PACKET_GCP_EN BIT(7)
+#define m_PACKET_MSI_EN BIT(6)
+#define m_PACKET_SDI_EN BIT(5)
+#define m_PACKET_VSI_EN BIT(4)
+#define v_PACKET_GCP_EN(n) (((n)&1) << 7)
+#define v_PACKET_MSI_EN(n) (((n)&1) << 6)
+#define v_PACKET_SDI_EN(n) (((n)&1) << 5)
+#define v_PACKET_VSI_EN(n) (((n)&1) << 4)
 
 #define HDMI_CONTROL_PACKET_BUF_INDEX 0x27c
 enum {
@@ -398,80 +330,80 @@ enum {
 };
 
 #define HDMI_CONTROL_PACKET_ADDR 0x280
-#define HDMI_MAXIMUM_INFO_FRAME_SIZE 9
-#define m_HDMI_DVI (1 << 1)
-#define v_HDMI_DVI(n) (n << 1)
+#define HDMI_MAXIMUM_INFO_FRAME_SIZE 32
+#define m_HDMI_DVI BIT(1)
+#define v_HDMI_DVI(n) ((n) << 1)
 
 #define HDMI_INTERRUPT_MASK1 0x300
 #define HDMI_INTERRUPT_STATUS1 0x304
-#define m_INT_ACTIVE_VSYNC (1 << 5)
-#define m_INT_EDID_READY (1 << 2)
+#define m_INT_ACTIVE_VSYNC BIT(5)
+#define m_INT_EDID_READY BIT(2)
 
 #define HDMI_INTERRUPT_MASK2 0x308
 #define HDMI_INTERRUPT_STATUS2 0x30c
-#define m_INT_HDCP_ERR (1 << 7)
-#define m_INT_BKSV_FLAG (1 << 6)
-#define m_INT_HDCP_OK (1 << 4)
+#define m_INT_HDCP_ERR BIT(7)
+#define m_INT_BKSV_FLAG BIT(6)
+#define m_INT_HDCP_OK BIT(4)
 
 #define HDMI_STATUS 0x320
-#define m_HOTPLUG (1 << 7)
-#define m_MASK_INT_HOTPLUG (1 << 5)
-#define m_INT_HOTPLUG (1 << 1)
-#define v_MASK_INT_HOTPLUG(n) ((n & 0x1) << 5)
+#define m_HOTPLUG BIT(7)
+#define m_MASK_INT_HOTPLUG BIT(5)
+#define m_INT_HOTPLUG BIT(1)
+#define v_MASK_INT_HOTPLUG(n) (((n)&0x1) << 5)
 
 #define HDMI_COLORBAR 0x324
 
 #define HDMI_TMDS_SYNC 0x338
 #define HDMI_TMDS_SYS_CTL 0x6c8
-#define m_TMDS_CLK_SOURCE (1 << 5)
+#define m_TMDS_CLK_SOURCE BIT(5)
 #define v_TMDS_FROM_PLL (0 << 5)
-#define v_TMDS_FROM_GEN (1 << 5)
-#define m_PHASE_CLK (1 << 4)
+#define v_TMDS_FROM_GEN BIT(5)
+#define m_PHASE_CLK BIT(4)
 #define v_DEFAULT_PHASE (0 << 4)
-#define v_SYNC_PHASE (1 << 4)
-#define m_TMDS_CURRENT_PWR (1 << 3)
+#define v_SYNC_PHASE BIT(4)
+#define m_TMDS_CURRENT_PWR BIT(3)
 #define v_TURN_ON_CURRENT (0 << 3)
-#define v_CAT_OFF_CURRENT (1 << 3)
-#define m_BANDGAP_PWR (1 << 2)
+#define v_CAT_OFF_CURRENT BIT(3)
+#define m_BANDGAP_PWR BIT(2)
 #define v_BANDGAP_PWR_UP (0 << 2)
-#define v_BANDGAP_PWR_DOWN (1 << 2)
-#define m_PLL_PWR (1 << 1)
+#define v_BANDGAP_PWR_DOWN BIT(2)
+#define m_PLL_PWR BIT(1)
 #define v_PLL_PWR_UP (0 << 1)
-#define v_PLL_PWR_DOWN (1 << 1)
-#define m_TMDS_CHG_PWR (1 << 0)
+#define v_PLL_PWR_DOWN BIT(1)
+#define m_TMDS_CHG_PWR BIT(0)
 #define v_TMDS_CHG_PWR_UP (0 << 0)
-#define v_TMDS_CHG_PWR_DOWN (1 << 0)
+#define v_TMDS_CHG_PWR_DOWN BIT(0)
 #define TMDS_SYNC_VAL0 0x00
 #define TMDS_SYNC_VAL1 0x01
 #define TMDS_SYNC_VAL2 0x80
 
 #define HDMI_PHY_CHG_PWR 0xe1
-#define v_CLK_CHG_PWR(n) ((n & 1) << 3)
-#define v_DATA_CHG_PWR(n) ((n & 7) << 0)
+#define v_CLK_CHG_PWR(n) (((n)&1) << 3)
+#define v_DATA_CHG_PWR(n) (((n)&7) << 0)
 
 #define HDMI_PHY_DRIVER 0xe2
-#define v_CLK_MAIN_DRIVER(n) (n << 4)
-#define v_DATA_MAIN_DRIVER(n) (n << 0)
+#define v_CLK_MAIN_DRIVER(n) ((n) << 4)
+#define v_DATA_MAIN_DRIVER(n) ((n) << 0)
 
 #define HDMI_PHY_PRE_EMPHASIS 0xe3
-#define v_PRE_EMPHASIS(n) ((n & 7) << 4)
-#define v_CLK_PRE_DRIVER(n) ((n & 3) << 2)
-#define v_DATA_PRE_DRIVER(n) ((n & 3) << 0)
+#define v_PRE_EMPHASIS(n) (((n)&7) << 4)
+#define v_CLK_PRE_DRIVER(n) (((n)&3) << 2)
+#define v_DATA_PRE_DRIVER(n) (((n)&3) << 0)
 
 #define HDMI_PHY_FEEDBACK_DIV_RATIO_LOW 0xe7
-#define v_FEEDBACK_DIV_LOW(n) (n & 0xff)
+#define v_FEEDBACK_DIV_LOW(n) ((n)&0xff)
 #define HDMI_PHY_FEEDBACK_DIV_RATIO_HIGH 0xe8
-#define v_FEEDBACK_DIV_HIGH(n) (n & 1)
+#define v_FEEDBACK_DIV_HIGH(n) ((n)&1)
 
 #define HDMI_PHY_PRE_DIV_RATIO 0xed
-#define v_PRE_DIV_RATIO(n) (n & 0x1f)
+#define v_PRE_DIV_RATIO(n) ((n)&0x1f)
 
 #define HDMI_CEC_CTRL 0x340
-#define m_ADJUST_FOR_HISENSE (1 << 6)
-#define m_REJECT_RX_BROADCAST (1 << 5)
-#define m_BUSFREETIME_ENABLE (1 << 2)
-#define m_REJECT_RX (1 << 1)
-#define m_START_TX (1 << 0)
+#define m_ADJUST_FOR_HISENSE BIT(6)
+#define m_REJECT_RX_BROADCAST BIT(5)
+#define m_BUSFREETIME_ENABLE BIT(2)
+#define m_REJECT_RX BIT(1)
+#define m_START_TX BIT(0)
 
 #define HDMI_CEC_DATA 0x344
 #define HDMI_CEC_TX_OFFSET 0x348
@@ -481,15 +413,15 @@ enum {
 #define HDMI_CEC_TX_LENGTH 0x358
 #define HDMI_CEC_RX_LENGTH 0x35c
 #define HDMI_CEC_TX_INT_MASK 0x360
-#define m_TX_DONE (1 << 3)
-#define m_TX_NOACK (1 << 2)
-#define m_TX_BROADCAST_REJ (1 << 1)
-#define m_TX_BUSNOTFREE (1 << 0)
+#define m_TX_DONE BIT(3)
+#define m_TX_NOACK BIT(2)
+#define m_TX_BROADCAST_REJ BIT(1)
+#define m_TX_BUSNOTFREE BIT(0)
 
 #define HDMI_CEC_RX_INT_MASK 0x364
-#define m_RX_LA_ERR (1 << 4)
-#define m_RX_GLITCH (1 << 3)
-#define m_RX_DONE (1 << 0)
+#define m_RX_LA_ERR BIT(4)
+#define m_RX_GLITCH BIT(3)
+#define m_RX_DONE BIT(0)
 
 #define HDMI_CEC_TX_INT 0x368
 #define HDMI_CEC_RX_INT 0x36c
@@ -499,19 +431,20 @@ enum {
 
 /* Setting BIAS current registers */
 #define HDMI_BIAS_CIRCUIT 0x6C0
-#define m_BIAS_CONTROL (1 << 2)
+#define m_BIAS_CONTROL BIT(2)
 #define HDMI_BIAS_DEF 0x08
 
 #define HDMI_RX_SENSE 0x730
-#define m_RX_SENSE_CLOCK_CHANNEL (1 << 3)
-#define m_RX_SENSE_DATA_CHANNEL_2 (1 << 2)
-#define m_RX_SENSE_DATA_CHANNEL_1 (1 << 1)
-#define m_RX_SENSE_DATA_CHANNEL_0 (1 << 0)
+#define HDMI_RX_SENSE_STATUS 0x734  /* 0x1cd: bit[3:0] = detect per channel */
+#define m_RX_SENSE_CLOCK_CHANNEL BIT(3)
+#define m_RX_SENSE_DATA_CHANNEL_2 BIT(2)
+#define m_RX_SENSE_DATA_CHANNEL_1 BIT(1)
+#define m_RX_SENSE_DATA_CHANNEL_0 BIT(0)
 #define m_HDMI_RX_SENSE                                         \
 	(m_RX_SENSE_CLOCK_CHANNEL | m_RX_SENSE_DATA_CHANNEL_2 | \
 	 m_RX_SENSE_DATA_CHANNEL_1 | m_RX_SENSE_DATA_CHANNEL_0)
 
-/* HDMI video information code(VIC) formats */
+/* HDMI video information code (VIC) formats */
 #define VIC_FMT_720x480i4_3 6
 #define VIC_FMT_720x480i16_9 7
 #define VIC_FMT_720x576i4_3 21
@@ -521,11 +454,7 @@ enum {
 #define VIC_FMT_720x576p4_3 17
 #define VIC_FMT_720x576p16_9 18
 
-#define gpio_load 346
-#define gpio_disp 347
-
 /* Macros for the Control Path */
 #define AX_HDMI_EDID_REG_OFFSET 0x00 /* EDID Register offset */
 
-void axiado_hdmi_write_edid(struct axiado_hdmi *hdmi, struct edid *edid_data);
 #endif /* __AXIADO_HDMI_H__ */

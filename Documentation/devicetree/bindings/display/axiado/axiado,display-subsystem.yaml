@@ -4,26 +4,36 @@
 $id: http://devicetree.org/schemas/display/axiado/axiado,display-subsystem.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Axiado DRM
+title: Axiado AX3000 Display Subsystem
 
 maintainers:
   - Shubhangini G <shubhangini@axiado.com>
+  - Tzu-Hao Wei <twei@axiado.com>
   - Prasad Bolisetty <pbolisetty@axiado.com>
 
 description: |
-    Minimal binding for Axiado SoC display subsystem container node that ties
-    together display pipeline blocks.
+  Container node for the AX3000 SoC display subsystem. The driver walks
+  the 'ports' phandle list to discover the display pipeline components
+  (LCDC, HDMI) via the standard device-tree ports/endpoint graph.
 
 properties:
-
   compatible:
     const: axiado,display-subsystem
 
   ports:
     $ref: /schemas/types.yaml#/definitions/phandle-array
-    description:
-      List of phandles to the output port nodes of the display pipeline
-      blocks tied together by this subsystem.
+    description: |
+      Phandles to each display-pipeline component's 'port' node. The
+      driver uses these as anchors for the OF-graph walk that ties the
+      LCDC and HDMI components together via the component framework.
+    minItems: 1
+
+  memory-region:
+    maxItems: 1
+    description: |
+      Optional reserved memory region used as the DMA pool for GEM
+      buffer allocations. When absent, the platform default DMA pool
+      is used instead.
 
 required:
   - compatible
@@ -35,6 +45,7 @@ examples:
   - |
     display-subsystem {
         compatible = "axiado,display-subsystem";
-        ports = <&disp_out>;
+        ports = <&disp_out>, <&hdmi_in>;
+        memory-region = <&pci_ep_disp>;
     };
 ...

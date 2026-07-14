@@ -93,6 +93,7 @@
 		#size-cells = <2>;
 		ranges;
 		pci_ep_disp: buffer@8c000000 {
+			compatible = "shared-dma-pool";
 			reg = <0x00 0x8c000000 0x00 0x4000000>; /* Data-64MB framebuffer */
 			no-map;
 		};
@@ -124,6 +125,7 @@
 	display-subsystem {
 		compatible = "axiado,display-subsystem";
 		ports = <&disp_out>;
+		memory-region = <&pci_ep_disp>;
 	};
 
 	timer {
@@ -212,8 +214,8 @@
 			reg = <0x0 0x40c00000 0x0 0x1000>;
 			memory-region = <&pci_ep_disp>;
 			interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&clk_mali &clk_pclk>;
-			clock-names = "clk_mali", "clk_pclk";
+			clocks = <&clk_pclk>;
+			clock-names = "clk_pclk";
 			bits-per-pixel = <32>;
 			bus-width = <24>;
 			paddr-disp = <0x8c000000>;
@@ -221,6 +223,7 @@
 			disp_out: port {
 				#address-cells = <1>;
 				#size-cells = <0>;
+				status = "disabled";
 				disp_out_hdmi: endpoint@0 {
 					reg = <0>;
 					remote-endpoint = <&hdmi_in_disp>;
@@ -573,20 +576,21 @@
 		hdmi: hdmi@40c11000 {
 			compatible ="axiado,ax3000-hdmi";
 			reg = <0x00 0x40c11000 0x00 0x4000>;
-			memory-region = <&pci_ep_disp>;
+			memory-region = <&pci_ep_ctrl>;
 			interrupts = <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH>;
-			clocks =  <&clk_mali>, <&clk_pclk>;
-			clock-names = "clk_mali", "clk_pclk";
-			#address-cells = <1>;
-			#size-cells = <0>;
+			clocks = <&clk_pclk>;
+			clock-names = "clk_pclk";
+			axiado,hypervisor-edid-passthrough;
 			status = "disabled";
-			hdmi_in: port {
+			ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
-				status = "disabled";
-				hdmi_in_disp: endpoint@0 {
+				hdmi_in: port@0 {
 					reg = <0>;
-					remote-endpoint = <&disp_out_hdmi>;
+					status = "disabled";
+					hdmi_in_disp: endpoint {
+						remote-endpoint = <&disp_out_hdmi>;
+					};
 				};
 			};
 		};
