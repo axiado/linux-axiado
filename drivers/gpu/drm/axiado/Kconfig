@@ -1,53 +1,47 @@
 config DRM_AXIADO
-        bool "HDMI specific extensions"
-        depends on DRM && OF
-        select DRM_CLIENT_SELECTION
-        select DRM_KMS_HELPER
-        select DRM_GEM_DMA_HELPER
-        help
-          Choose this option to enable support for the Axiado SoC
-          Display Subsystem DRM driver.
-
-          The Axiado SoC integrates a display pipeline consisting of
-          multiple hardware blocks connected via the standard
-          device-tree ports/endpoint graph bindings, including a
-          display controller, HDMI transmitter, and associated
-          clock and PHY resources.
-
-          This driver supports the SoC's integrated HDMI output as
-          well as display controllers exposed through the
-          display-subsystem container node, providing KMS/DRM
-          support for video output on Axiado-based platforms.
-
-          If you want to use the Axiado SoC integrated HDMI or
-          related display controllers under the Direct Rendering
-          Manager (DRM) framework, say Y or M here.
-
-          If unsure, say N.
-
-if DRM_AXIADO
-
-config AXIADO_LCDC
-	bool "Axiado DB9000 LCD controller (LCDC)"
-	default y
+	tristate "DRM Support for Axiado AX3000 Display Subsystem"
+	depends on DRM && OF
+	select DRM_KMS_HELPER
+	select DRM_GEM_DMA_HELPER
+	select DRM_CLIENT_SELECTION
 	help
-	  Enable the Digital Blocks DB9000 LCD controller sub-driver. It
-	  provides the CRTC and primary plane of the Axiado display
-	  subsystem and binds as a component of the display-subsystem
-	  master.
+	  Choose this option to enable support for the Axiado AX3000
+	  Display Subsystem DRM driver. The display-subsystem node
+	  represents a container that ties together the display
+	  pipeline blocks using the standard device-tree ports/endpoint
+	  graph bindings.
 
-	  If unsure, say Y.
+	  If you want to use the AX3000 SoC integrated HDMI or related
+	  display controllers under the Direct Rendering Manager (DRM)
+	  framework, say Y or M here.
+
+	  If unsure, say N.
 
 config AXIADO_HDMI
-	bool "Axiado HDMI TX controller"
-	default y
-	select DRM_DISPLAY_HELPER
+	bool "Axiado AX3000 HDMI transmitter"
+	depends on DRM_AXIADO
 	help
-	  Enable the Axiado HDMI transmitter sub-driver. It provides the
-	  encoder and HDMI connector (with DDC/EDID over an on-chip I2C
-	  master) of the Axiado display subsystem and binds as a component
-	  of the display-subsystem master.
+	  Choose this option to enable support for the Axiado AX3000
+	  HDMI driver. If you want to use the AX3000 SoC integrated HDMI or related
+	  display controllers under the Direct Rendering Manager (DRM)
+	  framework, say Y or M here.
 
-	  If unsure, say Y.
+	  If unsure, say N.
 
-endif # DRM_AXIADO
+config AXIADO_LCDC
+	bool "DRM Support for DB9000 LCD Controller"
+	depends on DRM_AXIADO
+	help
+	  Choose this option to enable support for the Axiado AX3000
+	  DB9000 display controller. The DB9000 is a display bridge
+	  block inside the AX3000 SoC that connects the display
+	  subsystem to an HDMI transmitter.
+	  This driver integrates with the DRM framework and
+	  implements the standard device-tree graph bindings for
+	  encoders and bridges. The node is typically a child of
+	  the display-subsystem in the SoC device tree.
+
+	  Say Y or M if you want to use HDMI or related display
+	  output through the DB9000 controller on AX3000 platforms.
+
+	  If unsure, say N.

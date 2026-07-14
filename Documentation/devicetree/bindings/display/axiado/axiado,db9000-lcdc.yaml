@@ -4,65 +4,72 @@
 $id: http://devicetree.org/schemas/display/axiado/axiado,db9000-lcdc.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: DB9000 Display Controller
+title: Digital Blocks DB9000 LCD Controller (Axiado AX3000)
 
 maintainers:
   - Shubhangini G <shubhangini@axiado.com>
+  - Tzu-Hao Wei <twei@axiado.com>
   - Prasad Bolisetty <pbolisetty@axiado.com>
 
 description: |
-  This is an display controller by Digital Blocks available for SoCs. The DB9000
-  controller reads from the framebuffer to display on a single RGB interface.
-  Output may be formatted in RGB or BGR.
+  The DB9000 is a display controller from Digital Blocks integrated on
+  the Axiado AX3000 SoC. It reads pixels from a framebuffer in main
+  memory and drives a single RGB interface. Output may be formatted in
+  RGB or BGR.
 
 properties:
-    compatible:
-      const: axiado,drm-db9000
+  compatible:
+    const: axiado,drm-db9000
 
-    reg:
-      maxItems: 1
+  reg:
+    maxItems: 1
 
-    interrupts:
-      maxItems: 1
+  interrupts:
+    maxItems: 1
 
-    clocks:
-      minItems: 2
-      maxItems: 2
-      description: |
-        A phandle and clock-specifier pair to be used as a reference clock
-        internal bus clock and pixel clock.
+  clocks:
+    maxItems: 1
+    description:
+      Pixel clock that drives the LCDC scanout engine and feeds the
+      downstream HDMI PHY reference.
 
-    clock-names:
-      items:
-        - const: clk_mali
-        - const: clk_pclk
+  clock-names:
+    items:
+      - const: clk_pclk
 
-    port:
-      type: object
-      description: The panel endpoint connection.
+  port:
+    $ref: /schemas/graph.yaml#/properties/port
+    description: Output port; endpoint connected to the HDMI encoder.
 
-    bits-per-pixel:
-      description: |
-        Default is 24. This selects the number of bits used to represent
-        a single pixel within the controller.
-      $ref: "/schemas/types.yaml#/definitions/uint32"
-      enum: [8, 16, 24, 32]
+  bits-per-pixel:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    enum: [16, 24, 32]
+    description: |
+      Number of bits used to represent a single pixel within the
+      controller. Default 24 when omitted.
 
-    bus-width:
-      $ref: /schemas/types.yaml#/definitions/uint32
-      description: |
-         The width of the interface to the LCD panel. This is needed
-         if the bits-per-pixel property is set to 16 or less, but the board
-         connects to a 24-bit panel. In which case, the controller will shift the
-         16-bit data to the most significant bits of the device. Default is 24.
+  bus-width:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    enum: [8, 16, 24]
+    description: |
+      Width of the interface to the LCD panel. Required when
+      bits-per-pixel is 16 or less but the board connects a 24-bit
+      panel; the controller will shift 16-bit data to the MSB of the
+      output. Default 24 when omitted.
 
-    paddr-disp:
-      $ref: /schemas/types.yaml#/definitions/uint32
-      description: Offset into the reserved framebuffer region.
+  memory-region:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Reserved framebuffer region (fixed physical range).
 
-    memory-region:
-      $ref: /schemas/types.yaml#/definitions/phandle
-      description: Reserved framebuffer region (fixed physical range).
+  paddr-disp:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    deprecated: true
+    description: |
+      Historical: offset into the reserved framebuffer region. The
+      driver no longer consults this property and derives the DMA
+      address from the GEM/DMA helpers instead. Kept in the schema
+      only so existing DTS files continue to pass dt-validate; new
+      DTS should omit it.
 
 required:
   - compatible
@@ -71,34 +78,28 @@ required:
   - clocks
   - clock-names
   - port
-  - bus-width
-  - bits-per-pixel
   - memory-region
-  - paddr-disp
 
-unevaluatedProperties: false
+additionalProperties: false
 
 examples:
   - |
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
     #include <dt-bindings/interrupt-controller/irq.h>
 
-    disp_ctrl: disp_ctrl@40c00000 {
+    disp_ctrl: display-controller@40c00000 {
         compatible = "axiado,drm-db9000";
         reg = <0x40c00000 0x1000>;
         memory-region = <&pci_ep_disp>;
-        interrupts = <0 14 IRQ_TYPE_LEVEL_HIGH>;
-        clocks = <&clk_mali &clk_pclk>;
-        clock-names = "clk_mali", "clk_pclk";
+        interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&clk_pclk>;
+        clock-names = "clk_pclk";
         bits-per-pixel = <32>;
         bus-width = <24>;
-        paddr-disp = <0x8c000000>;
 
         disp_out: port {
-            #address-cells = <1>;
-            #size-cells = <0>;
-
-            disp_out_hdmi: endpoint@0 {
-                reg = <0>;
+            disp_out_hdmi: endpoint {
+                remote-endpoint = <&hdmi_in_disp>;
             };
         };
     };

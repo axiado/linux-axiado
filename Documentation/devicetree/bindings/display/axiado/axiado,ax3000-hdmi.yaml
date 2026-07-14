@@ -8,80 +8,94 @@ title: Axiado AX3000 HDMI TX Encoder
 
 maintainers:
   - Shubhangini G <shubhangini@axiado.com>
+  - Tzu-Hao Wei <twei@axiado.com>
   - Prasad Bolisetty <pbolisetty@axiado.com>
 
 description: |
-  The HDMI transmitter is a Innosilicon HDMI TX controller IP
-  with a companion PHY IP.
+  The HDMI transmitter is an Innosilicon HDMI TX controller IP
+  with a companion PHY IP, integrated on the Axiado AX3000 SoC.
 
 properties:
-    compatible:
-        const: axiado,ax3000-hdmi
+  compatible:
+    const: axiado,ax3000-hdmi
 
-    reg:
-        maxItems: 1
+  reg:
+    maxItems: 1
 
-    memory-region:
-        maxItems: 1
+  memory-region:
+    maxItems: 1
+    description: |
+      Reserved memory region used as an EDID passthrough buffer when
+      'axiado,hypervisor-edid-passthrough' is present.
 
-    clocks:
-        minItems: 2
-        maxItems: 2
+  clocks:
+    maxItems: 1
+    description:
+      Pixel clock for the HDMI controller; sets the TMDS reference.
 
-    clock-names:
-        items:
-          - const: clk_mali
-          - const: clk_pclk
+  clock-names:
+    items:
+      - const: clk_pclk
 
-    interrupts:
-        maxItems: 1
+  interrupts:
+    maxItems: 1
 
-    pwren-gpios:
-        maxItems: 1
-        description: GPIO used to control the HDMI power enable signal.
+  pwren-gpios:
+    maxItems: 1
+    description:
+      Optional GPIO that controls the HDMI power rail. When present the
+      driver asserts it high at bind time before initialising the PHY.
 
-    '#address-cells':
-        const: 1
+  axiado,hypervisor-edid-passthrough:
+    type: boolean
+    description: |
+      When set, the driver mirrors the EDID bytes read from the sink
+      into the reserved 'memory-region' so the hypervisor BMC can
+      observe what monitor is attached.
 
-    '#size-cells':
-        const: 0
+  ports:
+    $ref: /schemas/graph.yaml#/properties/ports
 
-    port:
+    properties:
+      port@0:
         $ref: /schemas/graph.yaml#/properties/port
         description:
-            Port node with one endpoint connected to the display controller.
+          Input port; one endpoint connected to the LCDC output.
+
+    required:
+      - port@0
 
 required:
   - compatible
   - reg
-  - memory-region
   - clocks
   - clock-names
   - interrupts
-  - port
+  - ports
 
-unevaluatedProperties: false
+additionalProperties: false
 
 examples:
   - |
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
     #include <dt-bindings/interrupt-controller/irq.h>
 
-    hdmi: hdmi@40c11000 {
+    hdmi@40c11000 {
         compatible = "axiado,ax3000-hdmi";
         reg = <0x40c11000 0x4000>;
-        memory-region = <&pci_ep_disp>;
-        interrupts = <0 16 IRQ_TYPE_LEVEL_HIGH>;
-        clocks =  <&clk_mali>, <&clk_pclk>;
-        clock-names = "clk_mali", "clk_pclk";
-        #address-cells = <1>;
-        #size-cells = <0>;
+        interrupts = <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&clk_pclk>;
+        clock-names = "clk_pclk";
 
-        hdmi_in: port {
+        ports {
             #address-cells = <1>;
             #size-cells = <0>;
-            hdmi_in_disp: endpoint@0 {
+
+            port@0 {
                 reg = <0>;
-                remote-endpoint = <&disp_out_hdmi>;
+                hdmi_in_disp: endpoint {
+                    remote-endpoint = <&disp_out_hdmi>;
+                };
             };
         };
     };

@@ -233,6 +233,22 @@
 	status = "okay";
 };
 
+&disp_ctrl {
+	status = "okay";
+};
+
+&disp_out {
+	status = "okay";
+};
+
+&hdmi {
+	status = "okay";
+};
+
+&hdmi_in {
+	status = "okay";
+};
+
 &spi0 {
 	status = "okay";
 };
