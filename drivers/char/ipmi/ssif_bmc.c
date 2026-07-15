@@ -23,6 +23,7 @@
 #include <linux/delay.h>
 
 #include <linux/device.h>
+#include <linux/aspeed-2600-ara.h>
 
 #define DEVICE_NAME                             "ipmi-ssif-host"
 #ifdef CONFIG_SEPARATE_SSIF_POSTCODES
@@ -52,12 +53,27 @@
 #define BUFFER_SIZE 1024
 
 #ifdef CONFIG_I2C_ASPEED
-#define I2C_SLAVE_ADDR_REG ASPEED_I2C_DEV_ADDR_REG
+#define I2C_SLAVE_ADDR_REG 0x18
 #else
 #define I2C_SLAVE_ADDR_REG 0x40
 #endif
 
-extern void cdns_i2c_slave_set_busy(struct i2c_adapter *adap, bool busy);
+/*
+ * Minimal view of the I2C bus driver's private data. Both aspeed_i2c_bus
+ * (i2c-aspeed.c) and ast2600_i2c_bus (i2c-ast2600.c) place these three
+ * members first, so the cast from i2c_get_adapdata() is layout-safe when
+ * only accessing ->base.
+ *
+ * WARNING: This is a fragile struct-layout assumption. If the real driver
+ * struct reorders or inserts fields before 'base', this will silently
+ * break at runtime. Ideally the I2C bus driver should expose the register
+ * base through a proper API instead.
+ */
+struct aspeed_i2c_bus {
+	struct i2c_adapter	adap;
+	struct device		*dev;
+	void __iomem		*base;
+};
 
 struct ssif_part_buffer {
 	u8 address;
@@ -107,7 +123,6 @@ struct ssif_bmc_ctx {
 	u8                      recv_len;
 	/* Block Number of a Multi-part Read Transaction */
 	u8                      block_num;
-	bool                    busy;
 	bool                    aborting;
 	/* Buffer for SSIF Transaction part*/
 	struct ssif_part_buffer part_buf;
@@ -127,6 +142,8 @@ struct ssif_bmc_ctx {
 	u8                      running_post;
 	struct kfifo fifo_post;
 #endif //CONFIG_SEPARATE_SSIF_POSTCODES
+	struct ast2600_ara *ara;
+	bool wr_tolerance;
 };
 
 static ssize_t ssif_timeout_show(struct device *dev,
@@ -150,6 +167,72 @@ static ssize_t ssif_timeout_store(struct device *dev,
 	return count;
 }
 static DEVICE_ATTR_RW(ssif_timeout);
+
+void disable_ast2600_slave(struct i2c_client *client)
+{
+	u32 addr_reg_val;
+	struct aspeed_i2c_bus *bus;
+
+	if (!client)
+		return;
+	/*
+	 * trick: for i2c-ast2600 driver the correct struct should be
+	 * 'struct ast2600_i2c_bus' instead of 'struct aspeed_i2c_bus'.
+	 * However the first three members in both structs are the same:
+	 *
+	 *     struct i2c_adapter		adap;
+	 *     struct device			*dev;
+	 *     void __iomem			*reg_base;
+	 *
+	 * Here we only use bus->base so it's harmless to still refer as
+	 * 'struct aspeed_i2c_bus'.
+	 */
+	bus = i2c_get_adapdata(client->adapter);
+	addr_reg_val = readl(bus->base + I2C_SLAVE_ADDR_REG);
+	if ((addr_reg_val & 0x7F) == client->addr)
+	{//THIS BIT CANNOT BE DISABLED WITH OLD REGISTER MODE
+		addr_reg_val &= 0xFFFFFF7F;
+		writel(addr_reg_val, bus->base + I2C_SLAVE_ADDR_REG);
+	}
+	if (((addr_reg_val >> 8) & 0x7F) == client->addr)
+	{
+		addr_reg_val &= 0xFFFF7FFF;
+		writel(addr_reg_val, bus->base + I2C_SLAVE_ADDR_REG);
+	}
+	if (((addr_reg_val >> 16) & 0x7F) == client->addr)
+	{
+		addr_reg_val &= 0xFF7FFFFF;
+		writel(addr_reg_val, bus->base + I2C_SLAVE_ADDR_REG);
+	}
+}
+
+void enable_ast2600_slave(struct i2c_client *client)
+{
+	u32 addr_reg_val;
+	struct aspeed_i2c_bus *bus;
+
+	if (!client)
+		return;
+
+	bus = i2c_get_adapdata(client->adapter);
+	addr_reg_val = readl(bus->base + I2C_SLAVE_ADDR_REG);
+	if ((addr_reg_val & 0x7F) == client->addr)
+	{
+		addr_reg_val |= 0x80;
+		writel(addr_reg_val, bus->base + I2C_SLAVE_ADDR_REG);
+	}
+	else if (((addr_reg_val >> 8) & 0x7F) == client->addr)
+	{
+		addr_reg_val |= 0x8000;
+		writel(addr_reg_val, bus->base + I2C_SLAVE_ADDR_REG);
+	}
+	else if (((addr_reg_val >> 16) & 0x7F) == client->addr)
+	{
+		addr_reg_val |= 0x800000;
+		writel(addr_reg_val, bus->base + I2C_SLAVE_ADDR_REG);
+	}
+}
+
 
 static inline struct ssif_bmc_ctx *to_ssif_bmc(struct file *file)
 {
@@ -188,7 +271,7 @@ static ssize_t ssif_bmc_read(struct file *file, char __user *buf, size_t count_i
 			return -EAGAIN;
 		ret = wait_event_interruptible(ssif_bmc->wait_queue_rd, !kfifo_is_empty(&ssif_bmc->fifo));
 		if (ret == -ERESTARTSYS)
-			return ret;
+			return ret; 
 	}
 	spin_lock_irqsave(&ssif_bmc->lock_rd, flags);
 	ret = kfifo_to_user(&ssif_bmc->fifo, buf, count_in, &count_out);
@@ -264,7 +347,7 @@ static const struct file_operations ssif_bmc_post_fops = {
 	.poll		= ssif_bmc_poll_post,
 };
 
-static void send_post_code(struct ssif_bmc_ctx *ssif_bmc)
+void send_post_code(struct ssif_bmc_ctx *ssif_bmc)
 {
 	unsigned long flags = 0;
 	int rc = 0;
@@ -295,6 +378,9 @@ static ssize_t ssif_bmc_write(struct file *file, const char __user *buf, size_t 
 	struct ipmi_ssif_msg msg;
 	unsigned long flags;
 	ssize_t ret;
+	ktime_t delta;
+	ktime_t now;
+	s64 timer;
 
 	if (count > sizeof(struct ipmi_ssif_msg))
 		return -EINVAL;
@@ -311,8 +397,11 @@ static ssize_t ssif_bmc_write(struct file *file, const char __user *buf, size_t 
 	if (!msg.header.len || count < sizeof(struct ipmi_ssif_msg_header) + msg.header.len) {
 		return -EINVAL;
 	}
-
-	timer_delete(&ssif_bmc->response_timer);
+	now = ktime_get();
+	delta = ktime_sub(now, ssif_bmc->msg_time);
+	timer = ktime_to_ms(delta);
+	if (timer > (s64)(ssif_bmc->timeout))
+		return -EPERM;
 
 	spin_lock_irqsave(&ssif_bmc->lock_wr, flags);
 	memcpy(&ssif_bmc->response, &msg, count);
@@ -320,11 +409,13 @@ static ssize_t ssif_bmc_write(struct file *file, const char __user *buf, size_t 
 	spin_unlock_irqrestore(&ssif_bmc->lock_wr, flags);
 
 	timer_delete_sync(&ssif_bmc->response_timer);
-	ssif_bmc->busy = false;
-	cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, false);
+	enable_ast2600_slave(ssif_bmc->client);
+
 	if (!IS_ERR(ssif_bmc->alert)) {
+		enable_ast2600_ara(ssif_bmc->client);
 		//if gpio is already asserted toggle it
-		if (gpiod_get_value(ssif_bmc->alert)) {
+		if (gpiod_get_value(ssif_bmc->alert))
+		{
 			gpiod_set_value(ssif_bmc->alert, 0);
 			udelay(ssif_bmc->pulse_width);
 		}
@@ -418,9 +509,9 @@ static void handle_request(struct ssif_bmc_ctx *ssif_bmc)
 			return;
 		}
 
-		ssif_bmc->busy = true;
-		cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, true);
+		disable_ast2600_slave(ssif_bmc->client);
 		mod_timer(&ssif_bmc->response_timer, jiffies + msecs_to_jiffies(ssif_bmc->response_timeout));
+
 		memset(&ssif_bmc->response, 0, sizeof(struct ipmi_ssif_msg_header));
 		ssif_bmc->msg_time = ktime_get();
 		wake_up_all(&ssif_bmc->wait_queue_rd);
@@ -745,7 +836,6 @@ static void on_read_requested_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 	if (ssif_bmc->part_buf.length > 0)
 		*val = ssif_bmc->part_buf.length;
 
-	cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, false);
 	if (!IS_ERR(ssif_bmc->alert))
 		gpiod_set_value(ssif_bmc->alert, 0);
 }
@@ -760,13 +850,13 @@ static void on_read_processed_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 			 "Warn: %s unexpected READ PROCESSED in state=%s\n",
 			 __func__, state_to_string(ssif_bmc->state));
 		ssif_bmc->state = SSIF_ABORTING;
-		*val = 1;
+		*val = 0;
 		return;
 	}
 
 	/* Send 0 if there is nothing to send */
 	if (ssif_bmc->state == SSIF_ABORTING) {
-		*val = 1;
+		*val = 0;
 		return;
 	}
 
@@ -777,10 +867,22 @@ static void on_write_requested_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 {
 	if (ssif_bmc->state == SSIF_READY || ssif_bmc->state == SSIF_SMBUS_CMD) {
 		ssif_bmc->state = SSIF_START;
+		ssif_bmc->wr_tolerance = true;
 
 	} else if (ssif_bmc->state == SSIF_START ||
 		   ssif_bmc->state == SSIF_REQ_RECVING ||
 		   ssif_bmc->state == SSIF_RES_SENDING) {
+
+		if (ssif_bmc->state == SSIF_START && ssif_bmc->wr_tolerance) {
+			/*
+			 * Duplicated WREQ received.
+			 * This may be caused by long latency caused host re-transmission.
+			 */
+			dev_warn(&ssif_bmc->client->dev, "Dup WREQ\n");
+			ssif_bmc->wr_tolerance = false;
+			return;
+		}
+
 		dev_warn(&ssif_bmc->client->dev,
 			 "Warn: %s unexpected WRITE REQUEST in state=%s\n",
 			 __func__, state_to_string(ssif_bmc->state));
@@ -806,6 +908,18 @@ static void on_write_received_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 
 	} else if (ssif_bmc->state == SSIF_SMBUS_CMD) {
 		if (!supported_write_cmd(ssif_bmc->part_buf.smbus_cmd)) {
+
+			if (ssif_bmc->wr_tolerance &&
+				(ssif_bmc->part_buf.smbus_cmd == *val)) {
+				/*
+				 * Duplicated WRCV with the same data byte received.
+				 * This may be caused by long latency caused host re-transmission.
+				 */
+				dev_warn(&ssif_bmc->client->dev, "Dup WRCV:0x%x\n", *val);
+				ssif_bmc->wr_tolerance = false;
+				return;
+            }
+
 			dev_warn(&ssif_bmc->client->dev, "Warn: Unknown SMBus write command=0x%x",
 				 ssif_bmc->part_buf.smbus_cmd);
 			ssif_bmc->aborting = true;
@@ -818,16 +932,20 @@ static void on_write_received_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 	}
 
 	/* This is response sending state */
-	if (ssif_bmc->state == SSIF_REQ_RECVING)
+	if (ssif_bmc->state == SSIF_REQ_RECVING) {
+		ssif_bmc->wr_tolerance = false;
 		handle_write_received(ssif_bmc, val);
-	else if (ssif_bmc->state == SSIF_SMBUS_CMD)
+	} else if (ssif_bmc->state == SSIF_SMBUS_CMD) {
+		ssif_bmc->wr_tolerance = true;
 		process_smbus_cmd(ssif_bmc, val);
+	}
 }
 
 static void on_stop_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 {
 	if (ssif_bmc->state == SSIF_READY ||
 	    ssif_bmc->state == SSIF_START ||
+	    ssif_bmc->state == SSIF_SMBUS_CMD ||
 	    ssif_bmc->state == SSIF_ABORTING) {
 		dev_warn(&ssif_bmc->client->dev,
 			 "Warn: %s unexpected SLAVE STOP in state=%s\n",
@@ -848,8 +966,7 @@ static void on_stop_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 			 * the next valid read or write Start transaction is received
 			 */
 			dev_err(&ssif_bmc->client->dev, "Error: invalid pec\n");
-			ssif_bmc->aborting = false;
-			ssif_bmc->state = SSIF_READY;
+			ssif_bmc->aborting = true;
 		}
 	} else if (ssif_bmc->state == SSIF_RES_SENDING) {
 		ssif_bmc->state = SSIF_READY;
@@ -857,6 +974,7 @@ static void on_stop_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 
 	/* Reset message index */
 	ssif_bmc->msg_idx = 0;
+	ssif_bmc->wr_tolerance = false;
 }
 
 /*
@@ -866,10 +984,6 @@ static int ssif_bmc_cb(struct i2c_client *client, enum i2c_slave_event event, u8
 {
 	struct ssif_bmc_ctx *ssif_bmc = i2c_get_clientdata(client);
 	int ret = 0;
-
-	if (ssif_bmc->busy) {
-		return -EBUSY;
-	}
 
 	switch (event) {
 	case I2C_SLAVE_READ_REQUESTED:
@@ -902,11 +1016,10 @@ static int ssif_bmc_cb(struct i2c_client *client, enum i2c_slave_event event, u8
 
 static void retry_timeout(struct timer_list *t)
 {
-	struct ssif_bmc_ctx *ssif_bmc = timer_container_of(ssif_bmc, t, response_timer);
+	struct ssif_bmc_ctx *ssif_bmc = container_of(t, struct ssif_bmc_ctx, response_timer);
 
 	dev_warn(&ssif_bmc->client->dev, "Userspace did not respond in time. Force enable i2c target\n");
-	cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, false);
-	ssif_bmc->busy = false;
+	enable_ast2600_slave(ssif_bmc->client);
 }
 
 static int ssif_bmc_probe(struct i2c_client *client)
@@ -920,11 +1033,9 @@ static int ssif_bmc_probe(struct i2c_client *client)
 
 	/* Request GPIO for alerting the host that response is ready */
 	ssif_bmc->alert = devm_gpiod_get(&client->dev, "alert", GPIOD_OUT_LOW);
-	if (IS_ERR(ssif_bmc->alert))
-		dev_err(&client->dev, "ssif_bmc->alert failed gpioline not available\n");
 
 	if (of_property_read_u32(client->dev.of_node, "timeout_ms", &ssif_bmc->timeout))
-		ssif_bmc->timeout = 3500;
+		ssif_bmc->timeout = 250;
 	if (of_property_read_u32(client->dev.of_node, "pulse_width_us", &ssif_bmc->pulse_width))
 		ssif_bmc->pulse_width = 5;
 
@@ -936,7 +1047,6 @@ static int ssif_bmc_probe(struct i2c_client *client)
 
 	ssif_bmc->msg_count = 0;
 	ssif_bmc->running = 0;
-	ssif_bmc->busy = false;
 	spin_lock_init(&ssif_bmc->lock_rd);
 	spin_lock_init(&ssif_bmc->lock_wr);
 
@@ -983,6 +1093,7 @@ static int ssif_bmc_probe(struct i2c_client *client)
 		misc_deregister(&ssif_bmc->miscdev_post);
 #endif //CONFIG_SEPARATE_SSIF_POSTCODES
 	}
+	ssif_bmc->ara = register_ast2600_ara(client);
 
 	if (!IS_ERR(ssif_bmc->alert))
 		gpiod_set_value(ssif_bmc->alert, 0);
@@ -994,6 +1105,7 @@ static void ssif_bmc_remove(struct i2c_client *client)
 {
 	struct ssif_bmc_ctx *ssif_bmc = i2c_get_clientdata(client);
 
+	unregister_ast2600_ara(ssif_bmc->ara);
 	kfifo_free(&ssif_bmc->fifo);
 	i2c_slave_unregister(client);
 	misc_deregister(&ssif_bmc->miscdev);
