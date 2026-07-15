@@ -67,6 +67,14 @@
 		/* Updates the linux kernel memory map to load from 0x81000000 in DDR */
 		reg = <0x00000000 0x81000000 0x00000000 0x7F000000>;
 	};
+
+	reg_3v3_i2c_dev: fixed-regulator-i2c-dev {
+		compatible = "regulator-fixed";
+		regulator-name = "i2c-dev-3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
 };
 
 &uart2 {
@@ -162,12 +170,14 @@
 		compatible = "tmp75";
 		reg = <0x48>;
 		status = "okay";
+		vs-supply = <&reg_3v3_i2c_dev>;
 	};
 	eeprom@50 {
 		compatible = "atmel,24c16";
 		reg = <0x50>;
 		pagesize = <16>;
 		status = "okay";
+		vcc-supply = <&reg_3v3_i2c_dev>;
 	};
 };
 
