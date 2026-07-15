@@ -57,6 +57,8 @@
 #define I2C_SLAVE_ADDR_REG 0x40
 #endif
 
+extern void cdns_i2c_slave_set_busy(struct i2c_adapter *adap, bool busy);
+
 struct ssif_part_buffer {
 	u8 address;
 	u8 smbus_cmd;
@@ -105,6 +107,7 @@ struct ssif_bmc_ctx {
 	u8                      recv_len;
 	/* Block Number of a Multi-part Read Transaction */
 	u8                      block_num;
+	bool                    busy;
 	bool                    aborting;
 	/* Buffer for SSIF Transaction part*/
 	struct ssif_part_buffer part_buf;
@@ -262,7 +265,7 @@ static const struct file_operations ssif_bmc_post_fops = {
 	.poll		= ssif_bmc_poll_post,
 };
 
-void send_post_code(struct ssif_bmc_ctx *ssif_bmc)
+static void send_post_code(struct ssif_bmc_ctx *ssif_bmc)
 {
 	unsigned long flags = 0;
 	int rc = 0;
@@ -324,7 +327,8 @@ static ssize_t ssif_bmc_write(struct file *file, const char __user *buf, size_t 
 	spin_unlock_irqrestore(&ssif_bmc->lock_wr, flags);
 
 	timer_delete_sync(&ssif_bmc->response_timer);
-
+	ssif_bmc->busy = false;
+	cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, ssif_bmc->busy);
 	if (!IS_ERR(ssif_bmc->alert)) {
 		//if gpio is already asserted toggle it
 		if (gpiod_get_value(ssif_bmc->alert))
@@ -422,6 +426,8 @@ static void handle_request(struct ssif_bmc_ctx *ssif_bmc)
 			return;
 		}
 
+		ssif_bmc->busy = true;
+		cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, ssif_bmc->busy);
 		mod_timer(&ssif_bmc->response_timer, jiffies + msecs_to_jiffies(ssif_bmc->response_timeout));
 
 		memset(&ssif_bmc->response, 0, sizeof(struct ipmi_ssif_msg_header));
@@ -748,6 +754,7 @@ static void on_read_requested_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 	if (ssif_bmc->part_buf.length > 0)
 		*val = ssif_bmc->part_buf.length;
 
+	cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, false);
 	if (!IS_ERR(ssif_bmc->alert))
 		gpiod_set_value(ssif_bmc->alert, 0);
 }
@@ -762,13 +769,13 @@ static void on_read_processed_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 			 "Warn: %s unexpected READ PROCESSED in state=%s\n",
 			 __func__, state_to_string(ssif_bmc->state));
 		ssif_bmc->state = SSIF_ABORTING;
-		*val = 0;
+		*val = 1;
 		return;
 	}
 
 	/* Send 0 if there is nothing to send */
 	if (ssif_bmc->state == SSIF_ABORTING) {
-		*val = 0;
+		*val = 1;
 		return;
 	}
 
@@ -857,7 +864,6 @@ static void on_stop_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 {
 	if (ssif_bmc->state == SSIF_READY ||
 	    ssif_bmc->state == SSIF_START ||
-	    ssif_bmc->state == SSIF_SMBUS_CMD ||
 	    ssif_bmc->state == SSIF_ABORTING) {
 		dev_warn(&ssif_bmc->client->dev,
 			 "Warn: %s unexpected SLAVE STOP in state=%s\n",
@@ -878,7 +884,8 @@ static void on_stop_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 			 * the next valid read or write Start transaction is received
 			 */
 			dev_err(&ssif_bmc->client->dev, "Error: invalid pec\n");
-			ssif_bmc->aborting = true;
+			ssif_bmc->aborting = false;
+			ssif_bmc->state = SSIF_READY;
 		}
 	} else if (ssif_bmc->state == SSIF_RES_SENDING) {
 		ssif_bmc->state = SSIF_READY;
@@ -896,6 +903,10 @@ static int ssif_bmc_cb(struct i2c_client *client, enum i2c_slave_event event, u8
 {
 	struct ssif_bmc_ctx *ssif_bmc = i2c_get_clientdata(client);
 	int ret = 0;
+
+	if (ssif_bmc->busy) {
+		return -EBUSY;
+	}
 
 	switch (event) {
 	case I2C_SLAVE_READ_REQUESTED:
@@ -931,6 +942,8 @@ static void retry_timeout(struct timer_list *t)
 	struct ssif_bmc_ctx *ssif_bmc = container_of(t, struct ssif_bmc_ctx, response_timer);
 
 	dev_warn(&ssif_bmc->client->dev, "Userspace did not respond in time. Force enable i2c target\n");
+	cdns_i2c_slave_set_busy(ssif_bmc->client->adapter, false);
+	ssif_bmc->busy = false;
 }
 
 static int ssif_bmc_probe(struct i2c_client *client)
@@ -944,9 +957,11 @@ static int ssif_bmc_probe(struct i2c_client *client)
 
 	/* Request GPIO for alerting the host that response is ready */
 	ssif_bmc->alert = devm_gpiod_get(&client->dev, "alert", GPIOD_OUT_LOW);
+	if(IS_ERR(ssif_bmc->alert))
+		dev_err(&client->dev,"ssif_bmc->alert failed gpioline not available, postcode not supported\n");
 
 	if (of_property_read_u32(client->dev.of_node, "timeout_ms", &ssif_bmc->timeout))
-		ssif_bmc->timeout = 250;
+		ssif_bmc->timeout = 3500;
 	if (of_property_read_u32(client->dev.of_node, "pulse_width_us", &ssif_bmc->pulse_width))
 		ssif_bmc->pulse_width = 5;
 
@@ -958,6 +973,7 @@ static int ssif_bmc_probe(struct i2c_client *client)
 
 	ssif_bmc->msg_count = 0;
 	ssif_bmc->running = 0;
+	ssif_bmc->busy = false;
 	spin_lock_init(&ssif_bmc->lock_rd);
 	spin_lock_init(&ssif_bmc->lock_wr);
 
