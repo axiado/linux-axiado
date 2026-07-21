@@ -211,6 +211,8 @@ patternProperties:
     description: Axiado Corporation
   "^axis,.*":
     description: Axis Communications AB
+  "^axiado,.*":
+    description: Axiado Corporation
   "^azoteq,.*":
     description: Azoteq (Pty) Ltd
   "^azw,.*":

@@ -2513,7 +2513,9 @@ F:	arch/arm/mach-aspeed/
 N:	aspeed
 
 ARM/AXIADO ARCHITECTURE
-M:	Harshit Shah <hshah@axiado.com>
+M:	Tzu-Hao Wei <twei@axiado.com>
+M:	Akhila Kavi <akavi@axiado.com>
+M:	Prasad Bolisetty <pbolisetty@axiado.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	Documentation/devicetree/bindings/arm/axiado.yaml
@@ -4280,11 +4282,12 @@ M:	Prasad Bolisetty <pbolisetty@axiado.com>
 L:	linux-input@vger.kernel.org
 L:	linux-usb@vger.kernel.org
 S:	Maintained
+F:	drivers/usb/gadget/Kconfig
 F:	drivers/usb/gadget/function/f_hid_axiado.c
 F:	include/linux/hid.h
 
 AXIADO VIDEO DRIVER
-M:	Shubhangini <shubhangini@axiado.com>
+M:	Shubhangini G <shubhangini@axiado.com>
 M:	Prasad Bolisetty <pbolisetty@axiado.com>
 L:	linux-media@vger.kernel.org
 S:	Maintained
@@ -7790,7 +7793,7 @@ T:	git https://gitlab.freedesktop.org/drm/misc/kernel.git
 F:	drivers/gpu/drm/ast/
 
 DRM DRIVER FOR AXIADO
-M:	Shubhangini <shubhangini@axiado.com>
+M:	Shubhangini G <shubhangini@axiado.com>
 M:	Prasad Bolisetty <pbolisetty@axiado.com>
 L:	linux-phy@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
@@ -20096,7 +20099,7 @@ S:	Maintained
 F:	drivers/pci/controller/dwc/pci-meson.c
 
 AXIADO PCIE CONTROLLER DRIVER
-M:	Shubhangini <shubhangini@axiado.com>
+M:	Shubhangini G <shubhangini@axiado.com>
 M:	Karthikeyan Mitran <kmitran@axiado.com>
 M:	Prasad Bolisetty <pbolisetty@axiado.com>
 L:	linux-pci@vger.kernel.org

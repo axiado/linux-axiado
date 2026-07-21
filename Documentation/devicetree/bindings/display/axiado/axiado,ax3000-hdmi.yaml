@@ -7,7 +7,7 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 title: Axiado AX3000 HDMI TX Encoder
 
 maintainers:
-  - Shubhangini <shubhangini@axiado.com>
+  - Shubhangini G <shubhangini@axiado.com>
   - Prasad Bolisetty <pbolisetty@axiado.com>
 
 description: |
