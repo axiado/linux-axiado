@@ -29,7 +29,6 @@
 #include <trace/events/mctp.h>
 
 static const unsigned int mctp_message_maxlen = 64 * 1024;
-static const unsigned long mctp_key_lifetime = 6 * CONFIG_HZ;
 
 static void mctp_flow_prepare_output(struct sk_buff *skb, struct mctp_dev *dev);
 
@@ -262,7 +261,8 @@ void mctp_key_unref(struct mctp_sk_key *key)
 	kfree(key);
 }
 
-static int mctp_key_add(struct mctp_sk_key *key, struct mctp_sock *msk)
+static int mctp_key_add(struct mctp_sk_key *key, struct mctp_sock *msk,
+			unsigned long lifetime)
 {
 	struct net *net = sock_net(&msk->sk);
 	struct mctp_sk_key *tmp;
@@ -290,7 +290,7 @@ static int mctp_key_add(struct mctp_sk_key *key, struct mctp_sock *msk)
 
 	if (!rc) {
 		refcount_inc(&key->refs);
-		key->expiry = jiffies + mctp_key_lifetime;
+		key->expiry = jiffies + lifetime;
 		timer_reduce(&msk->key_expiry, key->expiry);
 
 		hlist_add_head(&key->hlist, &net->mctp.keys);
@@ -549,7 +549,7 @@ static int mctp_dst_input(struct mctp_dst *dst, struct sk_buff *skb)
 			 * no way to distinguish future packets, so all we
 			 * can do is drop.
 			 */
-			rc = mctp_key_add(key, msk);
+			rc = mctp_key_add(key, msk, dst->dev->key_lifetime);
 			if (!rc)
 				trace_mctp_key_acquire(key);
 
@@ -704,13 +704,13 @@ int mctp_default_net_set(struct net *net, unsigned int index)
 
 /* tag management */
 static void mctp_reserve_tag(struct net *net, struct mctp_sk_key *key,
-			     struct mctp_sock *msk)
+			     struct mctp_sock *msk, unsigned long lifetime)
 {
 	struct netns_mctp *mns = &net->mctp;
 
 	lockdep_assert_held(&mns->keys_lock);
 
-	key->expiry = jiffies + mctp_key_lifetime;
+	key->expiry = jiffies + lifetime;
 	timer_reduce(&msk->key_expiry, key->expiry);
 
 	/* we hold the net->key_lock here, allowing updates to both
@@ -727,7 +727,8 @@ static void mctp_reserve_tag(struct net *net, struct mctp_sk_key *key,
 struct mctp_sk_key *mctp_alloc_local_tag(struct mctp_sock *msk,
 					 unsigned int netid,
 					 mctp_eid_t local, mctp_eid_t peer,
-					 bool manual, u8 *tagp)
+					 bool manual, u8 *tagp,
+					 unsigned long lifetime)
 {
 	struct net *net = sock_net(&msk->sk);
 	struct netns_mctp *mns = &net->mctp;
@@ -791,7 +792,7 @@ struct mctp_sk_key *mctp_alloc_local_tag(struct mctp_sock *msk,
 
 	if (tagbits) {
 		key->tag = __ffs(tagbits);
-		mctp_reserve_tag(net, key, msk);
+		mctp_reserve_tag(net, key, msk, lifetime);
 		trace_mctp_key_acquire(key);
 
 		key->manual_alloc = manual;
@@ -1141,7 +1142,8 @@ int mctp_local_output(struct sock *sk, struct mctp_dst *dst,
 						       req_tag, &tag);
 		else
 			key = mctp_alloc_local_tag(msk, netid, saddr, daddr,
-						   false, &tag);
+						   false, &tag,
+						   dst->dev->key_lifetime);
 
 		if (IS_ERR(key)) {
 			rc = PTR_ERR(key);
@@ -1737,19 +1739,26 @@ static int __net_init mctp_routes_net_init(struct net *net)
 	return 0;
 }
 
-static void __net_exit mctp_routes_net_exit(struct net *net)
+/* mctp routes are otherwise only mutated under RTNL (see mctp_route_add(),
+ * mctp_route_remove() and mctp_route_remove_dev()); unlink them here too so
+ * a concurrent RCU lookup can't observe a route this net is tearing down.
+ */
+static void __net_exit mctp_routes_net_exit_rtnl(struct net *net,
+						 struct list_head *dev_kill_list)
 {
-	struct mctp_route *rt;
+	struct mctp_route *rt, *tmp;
 
-	rcu_read_lock();
-	list_for_each_entry_rcu(rt, &net->mctp.routes, list)
+	ASSERT_RTNL();
+
+	list_for_each_entry_safe(rt, tmp, &net->mctp.routes, list) {
+		list_del_rcu(&rt->list);
 		mctp_route_release(rt);
-	rcu_read_unlock();
+	}
 }
 
 static struct pernet_operations mctp_net_ops = {
 	.init = mctp_routes_net_init,
-	.exit = mctp_routes_net_exit,
+	.exit_rtnl = mctp_routes_net_exit_rtnl,
 };
 
 static const struct rtnl_msg_handler mctp_route_rtnl_msg_handlers[] = {

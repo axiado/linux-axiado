@@ -31,6 +31,8 @@ struct mctp_dev {
 	size_t			num_addrs;
 	spinlock_t		addrs_lock;
 
+	unsigned long		key_lifetime;
+
 	struct rcu_head		rcu;
 };
 
@@ -54,5 +56,7 @@ void mctp_dev_put(struct mctp_dev *mdev);
 
 void mctp_dev_set_key(struct mctp_dev *dev, struct mctp_sk_key *key);
 void mctp_dev_release_key(struct mctp_dev *dev, struct mctp_sk_key *key);
+
+void mctp_dev_set_timeout(struct net_device *dev, unsigned int timeout_ms);
 
 #endif /* __NET_MCTPDEVICE_H */
