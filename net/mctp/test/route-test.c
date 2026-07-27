@@ -473,7 +473,7 @@ static void mctp_test_route_input_sk_keys(struct kunit *test)
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, key);
 
 	spin_lock_irqsave(&mns->keys_lock, flags);
-	mctp_reserve_tag(&init_net, key, msk);
+	mctp_reserve_tag(&init_net, key, msk, MCTP_DEFAULT_LIFETIME);
 	spin_unlock_irqrestore(&mns->keys_lock, flags);
 
 	/* create packet and route */
@@ -671,7 +671,7 @@ mctp_test_route_input_multiple_nets_key_init(struct kunit *test,
 
 	mns = &sock_net(t->sock->sk)->mctp;
 	spin_lock_irqsave(&mns->keys_lock, flags);
-	mctp_reserve_tag(&init_net, t->key, msk);
+	mctp_reserve_tag(&init_net, t->key, msk, MCTP_DEFAULT_LIFETIME);
 	spin_unlock_irqrestore(&mns->keys_lock, flags);
 
 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, t->key);

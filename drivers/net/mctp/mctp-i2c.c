@@ -22,6 +22,7 @@
 #include <linux/i2c.h>
 #include <linux/i2c-mux.h>
 #include <linux/if_arp.h>
+#include <linux/of.h>
 #include <net/mctp.h>
 #include <net/mctpdevice.h>
 
@@ -63,6 +64,7 @@ struct mctp_i2c_dev {
 	struct list_head list; /* For mctp_i2c_client.devs */
 
 	size_t rx_pos;
+	bool rx_overflow;
 	u8 rx_buffer[MCTP_I2C_BUFSZ];
 	struct completion rx_done;
 
@@ -80,6 +82,7 @@ struct mctp_i2c_dev {
 	int release_count;
 	/* Indicates that the netif is ready to receive incoming packets */
 	bool allow_rx;
+	bool flows_enabled;
 
 };
 
@@ -206,10 +209,12 @@ static void __mctp_i2c_device_select(struct mctp_i2c_client *mcli,
 				     struct mctp_i2c_dev *midev)
 {
 	assert_spin_locked(&mcli->sel_lock);
-	if (midev)
+	if (midev) {
 		dev_hold(midev->ndev);
-	if (mcli->sel)
+	}
+	if (mcli->sel) {
 		dev_put(mcli->sel->ndev);
+	}
 	mcli->sel = midev;
 }
 
@@ -252,8 +257,9 @@ static int mctp_i2c_slave_cb(struct i2c_client *client,
 		if (midev->rx_pos < MCTP_I2C_BUFSZ) {
 			midev->rx_buffer[midev->rx_pos] = *val;
 			midev->rx_pos++;
-		} else {
+		} else if (!midev->rx_overflow) {
 			midev->ndev->stats.rx_over_errors++;
+			midev->rx_overflow = true;
 		}
 
 		break;
@@ -261,9 +267,13 @@ static int mctp_i2c_slave_cb(struct i2c_client *client,
 		/* dest_slave as first byte */
 		midev->rx_buffer[0] = mcli->lladdr << 1;
 		midev->rx_pos = 1;
+		midev->rx_overflow = false;
 		break;
 	case I2C_SLAVE_STOP:
-		rc = mctp_i2c_recv(midev);
+		if (midev->rx_overflow)
+			rc = -EINVAL;
+		else
+			rc = mctp_i2c_recv(midev);
 		break;
 	default:
 		break;
@@ -496,7 +506,10 @@ static void mctp_i2c_xmit(struct mctp_i2c_dev *midev, struct sk_buff *skb)
 	u8 *pecp;
 	int rc;
 
-	fs = mctp_i2c_get_tx_flow_state(midev, skb);
+	if (midev->flows_enabled)
+		fs = mctp_i2c_get_tx_flow_state(midev, skb);
+	else
+		fs = MCTP_I2C_TX_FLOW_NONE;
 
 	hdr = (void *)skb_mac_header(skb);
 	/* Sanity check that packet contents matches skb length,
@@ -557,8 +570,6 @@ static void mctp_i2c_xmit(struct mctp_i2c_dev *midev, struct sk_buff *skb)
 	}
 
 	if (rc < 0) {
-		dev_warn_ratelimited(&midev->adapter->dev,
-				     "__i2c_transfer failed %d\n", rc);
 		stats->tx_errors++;
 	} else {
 		stats->tx_bytes += skb->len;
@@ -759,6 +770,7 @@ static struct mctp_i2c_dev *mctp_i2c_midev_init(struct net_device *dev,
 	midev->adapter = adap;
 	get_device(&mcli->client->dev);
 	midev->client = mcli;
+	midev->flows_enabled = true;
 	INIT_LIST_HEAD(&midev->list);
 	spin_lock_init(&midev->lock);
 	midev->i2c_lock_count = 0;
@@ -901,6 +913,18 @@ static int mctp_i2c_add_netdev(struct mctp_i2c_client *mcli,
 			"register netdev \"%s\" failed %d\n",
 			ndev->name, rc);
 		goto err;
+	}
+
+	if (adap->dev.of_node) {
+		u32 timeout_ms;
+
+		if (!of_property_read_u32(adap->dev.of_node,
+					  "mctp-timeout-ms", &timeout_ms))
+			mctp_dev_set_timeout(ndev, timeout_ms);
+
+		if (of_property_read_bool(adap->dev.of_node,
+					  "mctp-no-flows"))
+			midev->flows_enabled = false;
 	}
 
 	spin_lock_irqsave(&midev->lock, flags);
@@ -1100,6 +1124,39 @@ static struct notifier_block mctp_i2c_notifier = {
 	.notifier_call = mctp_i2c_notifier_call,
 };
 
+/* Netdevice notifier to re-attach ops after namespace change.
+ * When a netdev moves namespaces, NETDEV_UNREGISTER fires in the old ns
+ * which destroys the mctp_dev, then NETDEV_REGISTER fires in the new ns
+ * which creates a new mctp_dev but without the ops pointer.
+ */
+static int mctp_i2c_netdev_notify(struct notifier_block *nb,
+				  unsigned long event, void *ptr)
+{
+	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
+	struct mctp_dev *mdev;
+
+	if (event != NETDEV_REGISTER)
+		return NOTIFY_DONE;
+
+	if (dev->netdev_ops != &mctp_i2c_ops)
+		return NOTIFY_DONE;
+
+	rcu_read_lock();
+	mdev = __mctp_dev_get(dev);
+	if (mdev) {
+		if (!mdev->ops)
+			mdev->ops = &mctp_i2c_mctp_ops;
+		mctp_dev_put(mdev);
+	}
+	rcu_read_unlock();
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block mctp_i2c_netdev_nb = {
+	.notifier_call = mctp_i2c_netdev_notify,
+};
+
 static const struct i2c_device_id mctp_i2c_id[] = {
 	{ "mctp-i2c-interface" },
 	{}
@@ -1135,6 +1192,12 @@ static __init int mctp_i2c_mod_init(void)
 		i2c_del_driver(&mctp_i2c_driver);
 		return rc;
 	}
+	rc = register_netdevice_notifier(&mctp_i2c_netdev_nb);
+	if (rc < 0) {
+		bus_unregister_notifier(&i2c_bus_type, &mctp_i2c_notifier);
+		i2c_del_driver(&mctp_i2c_driver);
+		return rc;
+	}
 	return 0;
 }
 
@@ -1142,6 +1205,7 @@ static __exit void mctp_i2c_mod_exit(void)
 {
 	int rc;
 
+	unregister_netdevice_notifier(&mctp_i2c_netdev_nb);
 	rc = bus_unregister_notifier(&i2c_bus_type, &mctp_i2c_notifier);
 	if (rc < 0)
 		pr_warn("MCTP I2C could not unregister notifier, %d\n", rc);
