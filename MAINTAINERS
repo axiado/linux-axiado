@@ -4221,9 +4221,10 @@ F:	drivers/hwmon/axiado-pwm-fan.c
 AXIADO MAILBOX DRIVER
 M:	Krishnakumar Kesavan <kkesavan@axiado.com>
 M:	Prasad Bolisetty <pbolisetty@axiado.com>
-S:	Maintained
-F:	Documentation/devicetree/bindings/mailbox/axiado,axiado-mailbox.yaml
+M:	Swark Yang <syang@axiado.com>
+S:	Supported
 F:	drivers/mailbox/axiado-mailbox.c
+F:	Documentation/devicetree/bindings/mailbox/axiado,ax3005-mailbox.yaml
 
 AXIADO PWM DRIVER
 M:	Akhila Kavi <akavi@axiado.com>
