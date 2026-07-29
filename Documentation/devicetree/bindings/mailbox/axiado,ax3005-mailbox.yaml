@@ -9,6 +9,7 @@ title: Axiado SoC Mailbox Controller
 maintainers:
   - Krishnakumar Kesavan <kkesavan@axiado.com>
   - Prasad Bolisetty <pbolisetty@axiado.com>
+  - Swark Yang <swark.yang@axiado.com>
 
 description: |
   The Axiado mailbox controller provides inter-processor communication
