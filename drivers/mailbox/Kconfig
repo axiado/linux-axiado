@@ -391,12 +391,13 @@ config RISCV_SBI_MPXY_MBOX
 	  If unsure say N.
 
 config AXIADO_MAILBOX
-	tristate "Axiado Mailbox Driver"
-	depends on OF && OF_RESERVED_MEM
+	tristate "Axiado mailbox driver"
+	depends on ARCH_AXIADO || COMPILE_TEST
+	depends on OF
 	help
-	  Enable support for the Axiado Mailbox interface. This driver provides
-	  a communication and control channel between the host CPU and the
-	  co-processor present on Axiado SoCs.
+	  Enable support for the Axiado mailbox controller. The driver provides
+	  communication channels between the host CPU and the coprocessor on
+	  Axiado SoCs.
 	  If unsure, say N.
 
 endif
