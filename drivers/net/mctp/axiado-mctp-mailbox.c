@@ -6,9 +6,13 @@
  * carrying MCTP packets over shared memory (MEMREMAP_WC) with mailbox
  * messages used purely as doorbells and ACKs.
  *
+ * Wire format note: the iROT message fields below (command, counter, size,
+ * address words) are defined little-endian on the wire. Both the Processor
+ * and the Co-Processor run little-endian on AX3005, so the driver accesses
+ * them as native u32 and is little-endian only by contract.
+ *
  */
 
-#include <linux/atomic.h>
 #include <linux/errno.h>
 #include <linux/io.h>
 #include <linux/kthread.h>
@@ -28,8 +32,8 @@
 
 /**
  * enum irot_command_code - iROT IPC command identifiers.
- * @irot_cc_ping:      Ping request from A53 to R52.
- * @irot_cc_ping_rsp:  Ping response from R52 to A53.
+ * @irot_cc_ping:      Ping request from Processor to Co-Processor.
+ * @irot_cc_ping_rsp:  Ping response from Co-Processor to Processor.
  * @irot_cc_mctp:      MCTP packet notification; shmem descriptor in data.
  * @irot_cc_mctp_done: MCTP buffer release ACK; counter echoed in data.
  */
@@ -98,17 +102,16 @@ struct irot_message {
 static_assert(sizeof(struct irot_message) == 32,
 	      "irot_message must be exactly 32 bytes");
 
-/** @brief Zero-initialiser for struct irot_message. */
+/* Zero-initialiser for struct irot_message. */
 #define IROT_MESSAGE_INIT       { .command = 0, .data = { .args = { 0 } } }
 
 /* Mailbox message format:
  * 16-byte firmware header + 32-byte irot_message = 48 bytes total
  */
 
-/** @brief Size of the firmware header prepended to every mailbox message. */
 #define AXIADO_MCTP_FW_HDR_SIZE         16
 
-/** @brief Total mailbox message size sent over the FIFO (48 bytes). */
+/* Total mailbox message size sent over the FIFO (48 bytes). */
 #define AXIADO_MCTP_MBOX_MSG_SIZE       (AXIADO_MCTP_FW_HDR_SIZE + \
 					 sizeof(struct irot_message))
 
@@ -133,10 +136,10 @@ static_assert(sizeof(struct axiado_mctp_mbox_msg) == 48,
 
 /* Driver definitions */
 
-/** @brief Maximum depth of the software TX queue (SKBs). */
+/* Maximum depth of the software TX queue (SKBs). */
 #define AXIADO_MCTP_QUEUE_SIZE  64
 
-/** @brief Minimum MCTP MTU per DMTF DSP0236 Section 8.3. */
+/* Minimum MCTP MTU per DMTF DSP0236 Section 8.3. */
 #define AXIADO_MCTP_MIN_MTU     68
 
 struct axiado_mctp_drv;
@@ -154,11 +157,11 @@ struct axiado_mctp_netdev_priv {
  * @dev:             Platform device pointer.
  * @ndev:            MCTP net device.
  * @mbox_client:     Mailbox client descriptor shared by TX and RX channels.
- * @tx_chan:         Mailbox TX channel (ch0, A53 -> R52).
- * @rx_chan:         Mailbox RX channel (ch8, R52 -> A53, interrupt-driven).
+ * @tx_chan:         Mailbox TX channel (Processor to Co-Processor).
+ * @rx_chan:         Mailbox RX channel (Co-Processor to Processor, interrupt-driven).
  * @mailbox_ready:   True once both mailbox channels have been acquired.
- * @tx_shmem:        WC-mapped TX shmem window (A53 writes, R52 reads).
- * @rx_shmem:        WC-mapped RX shmem window (R52 writes, A53 reads).
+ * @tx_shmem:        WC-mapped TX shmem window (Processor writes, Co-Processor reads).
+ * @rx_shmem:        WC-mapped RX shmem window (Co-Processor writes, Processor reads).
  * @tx_shmem_base:   Physical base address of TX shmem (from DTS).
  * @rx_shmem_base:   Physical base address of RX shmem (from DTS).
  * @tx_shmem_size:   Size of TX shmem window in bytes (from DTS).
@@ -168,14 +171,19 @@ struct axiado_mctp_netdev_priv {
  * @tx_wq:           Wait queue that wakes the TX kthread on enqueue.
  * @tx_thread:       TX kthread handle.
  * @tx_done_wq:      Wait queue that wakes the TX kthread on mctp_done ACK.
- * @pending_write:   Non-zero while a TX is awaiting its mctp_done ACK.
+ * @pending_write:   True while a TX is awaiting its mctp_done ACK.
  * @tx_state_lock:   Protects @pending_write and @pending_tx_counter.
  * @pending_tx_counter: Counter value of the in-flight TX packet.
  * @rx_wq:           Wait queue that wakes the RX kthread on mailbox arrival.
  * @rx_thread:       RX kthread handle.
- * @rx_lock:         Protects @pending_rx and @pending_rx_msg.
+ * @rx_lock:         Protects @pending_rx, @pending_rx_msg, @pending_ping and
+ *                   @pending_ping_value.
  * @pending_rx_msg:  Snapshot of the most recent unprocessed RX mailbox msg.
  * @pending_rx:      True when @pending_rx_msg holds an unprocessed message.
+ * @pending_ping:    True when a ping request awaits a response from the RX
+ *                   kthread (the reply must not be sent from the mailbox
+ *                   callback, which may run in atomic context).
+ * @pending_ping_value: Ping token to echo back in the ping response.
  */
 struct axiado_mctp_drv {
 	struct device *dev;
@@ -187,9 +195,9 @@ struct axiado_mctp_drv {
 	struct mbox_chan *rx_chan;
 	bool mailbox_ready;
 
-	/* Shared memory (WC-mapped, uncached on A53) */
-	void __iomem *tx_shmem;
-	void __iomem *rx_shmem;
+	/* Shared memory (WC-mapped via memremap, uncached on Processor) */
+	void *tx_shmem;
+	void *rx_shmem;
 	phys_addr_t   tx_shmem_base;
 	phys_addr_t   rx_shmem_base;
 	size_t        tx_shmem_size;
@@ -202,17 +210,20 @@ struct axiado_mctp_drv {
 	struct task_struct *tx_thread;
 
 	wait_queue_head_t tx_done_wq;
-	atomic_t pending_write;
-	spinlock_t tx_state_lock;      /* protects pending_write and pending_tx_counter */
+	bool pending_write;
+	spinlock_t tx_state_lock;
 	u32 pending_tx_counter;
 
 	/* RX path */
 	wait_queue_head_t rx_wq;
 	struct task_struct *rx_thread;
-	spinlock_t rx_lock;            /* protects pending_rx and pending_rx_msg */
+	spinlock_t rx_lock;
 
 	struct axiado_mctp_mbox_msg pending_rx_msg;
 	bool pending_rx;
+
+	bool pending_ping;
+	u32 pending_ping_value;
 };
 
 /* Internal helpers */
@@ -222,9 +233,8 @@ static void axiado_mctp_tx_mark_done(struct axiado_mctp_drv *drv, u32 counter)
 	unsigned long flags;
 
 	spin_lock_irqsave(&drv->tx_state_lock, flags);
-	if (atomic_read(&drv->pending_write) &&
-	    drv->pending_tx_counter == counter) {
-		atomic_set(&drv->pending_write, 0);
+	if (drv->pending_write && drv->pending_tx_counter == counter) {
+		drv->pending_write = false;
 		wake_up(&drv->tx_done_wq);
 	}
 	spin_unlock_irqrestore(&drv->tx_state_lock, flags);
@@ -236,14 +246,25 @@ static int axiado_mctp_tx_mark_pending(struct axiado_mctp_drv *drv,
 	unsigned long flags;
 
 	spin_lock_irqsave(&drv->tx_state_lock, flags);
-	if (atomic_read(&drv->pending_write)) {
+	if (drv->pending_write) {
 		spin_unlock_irqrestore(&drv->tx_state_lock, flags);
 		return -EBUSY;
 	}
 	drv->pending_tx_counter = counter;
-	atomic_set(&drv->pending_write, 1);
+	drv->pending_write = true;
 	spin_unlock_irqrestore(&drv->tx_state_lock, flags);
 	return 0;
+}
+
+static bool axiado_mctp_tx_idle(struct axiado_mctp_drv *drv)
+{
+	unsigned long flags;
+	bool idle;
+
+	spin_lock_irqsave(&drv->tx_state_lock, flags);
+	idle = !drv->pending_write;
+	spin_unlock_irqrestore(&drv->tx_state_lock, flags);
+	return idle;
 }
 
 static void axiado_build_mbox_msg(struct axiado_mctp_mbox_msg *mbox_msg,
@@ -353,16 +374,18 @@ static void axiado_mctp_rx_callback(struct mbox_client *cl, void *data)
 		axiado_mctp_tx_mark_done(drv, irot->data.value);
 		break;
 
-	case irot_cc_ping: {
-		struct irot_message rsp = IROT_MESSAGE_INIT;
-		struct axiado_mctp_mbox_msg rsp_msg;
-
-		rsp.command = irot_cc_ping_rsp;
-		rsp.data.value = irot->data.value;
-		axiado_build_mbox_msg(&rsp_msg, &rsp);
-		mbox_send_message(drv->tx_chan, &rsp_msg);
+	case irot_cc_ping:
+		/*
+		 * Do not reply from here: this callback may run in atomic
+		 * context and mbox_send_message() can sleep (tx_block). Defer
+		 * the response to the RX kthread.
+		 */
+		spin_lock_irqsave(&drv->rx_lock, flags);
+		drv->pending_ping = true;
+		drv->pending_ping_value = irot->data.value;
+		wake_up(&drv->rx_wq);
+		spin_unlock_irqrestore(&drv->rx_lock, flags);
 		break;
-	}
 
 	default:
 		dev_warn_ratelimited(drv->dev,
@@ -386,35 +409,59 @@ static int axiado_mctp_rx_thread(void *arg)
 		struct irot_message done_irot = IROT_MESSAGE_INIT;
 		struct axiado_mctp_mbox_msg done_msg;
 		unsigned long flags;
+		bool do_ping;
+		u32 ping_value;
+		bool have_rx;
 		u64 paddr;
 		u32 psize;
 		int rx_ret;
 
 		wait_event_killable(drv->rx_wq,
 				    kthread_should_stop() ||
-				    drv->pending_rx);
+				    drv->pending_rx || drv->pending_ping);
 
 		if (kthread_should_stop())
 			break;
 
 		spin_lock_irqsave(&drv->rx_lock, flags);
-		if (!drv->pending_rx) {
-			spin_unlock_irqrestore(&drv->rx_lock, flags);
-			continue;
+		do_ping = drv->pending_ping;
+		ping_value = drv->pending_ping_value;
+		drv->pending_ping = false;
+		have_rx = drv->pending_rx;
+		if (have_rx) {
+			memcpy(&mbox_msg, &drv->pending_rx_msg,
+			       sizeof(mbox_msg));
+			drv->pending_rx = false;
 		}
-		memcpy(&mbox_msg, &drv->pending_rx_msg, sizeof(mbox_msg));
-		drv->pending_rx = false;
 		spin_unlock_irqrestore(&drv->rx_lock, flags);
+
+		/* Deferred ping response (safe to send from process context) */
+		if (do_ping) {
+			struct irot_message rsp = IROT_MESSAGE_INIT;
+			struct axiado_mctp_mbox_msg rsp_msg;
+
+			rsp.command = irot_cc_ping_rsp;
+			rsp.data.value = ping_value;
+			axiado_build_mbox_msg(&rsp_msg, &rsp);
+			mbox_send_message(drv->tx_chan, &rsp_msg);
+		}
+
+		if (!have_rx)
+			continue;
 
 		irot = &mbox_msg.irot;
 		paddr = ((u64)irot->data.mctp.packet.address.high << 32) |
 			irot->data.mctp.packet.address.low;
 		psize = irot->data.mctp.packet.size;
 
-		/* address.high is always 0 on AX3005; wrap check not needed */
-		if (paddr < drv->rx_shmem_base ||
-		    paddr + psize > drv->rx_shmem_base + drv->rx_shmem_size ||
-		    psize == 0 || psize > drv->mtu) {
+		/*
+		 * Validate the size first, then the base, then the extent.
+		 * address.high is always 0 on AX3005, so paddr < 2^32 and the
+		 * paddr + psize sum cannot overflow u64.
+		 */
+		if (psize == 0 || psize > drv->mtu ||
+		    paddr < drv->rx_shmem_base ||
+		    paddr + psize > drv->rx_shmem_base + drv->rx_shmem_size) {
 			dev_warn_ratelimited(drv->dev,
 					     "invalid RX span addr=0x%llx size=%u\n",
 					     paddr, psize);
@@ -428,9 +475,9 @@ static int axiado_mctp_rx_thread(void *arg)
 			goto send_done;
 		}
 
-		memcpy_fromio(skb_put(skb, psize),
-			      drv->rx_shmem + (paddr - drv->rx_shmem_base),
-			      psize);
+		memcpy(skb_put(skb, psize),
+		       drv->rx_shmem + (paddr - drv->rx_shmem_base),
+		       psize);
 
 		skb->dev = drv->ndev;
 		skb->protocol = htons(ETH_P_MCTP);
@@ -499,14 +546,14 @@ static int axiado_mctp_tx_thread(void *arg)
 		/*
 		 * Wait for previous TX ACK before writing shmem.
 		 * Intentionally unbounded: irot_cc_mctp_done is guaranteed
-		 * by the R52 firmware protocol. A timeout would be worse —
-		 * a premature expiry force-clears pending_write, the next
-		 * packet overwrites TX shmem, and R52 receives corrupted
-		 * data with a counter mismatch.
+		 * by the Co-Processor firmware protocol. A timeout would be
+		 * worse — a premature expiry force-clears pending_write, the
+		 * next packet overwrites TX shmem, and Co-Processor receives
+		 * corrupted data with a counter mismatch.
 		 */
 		wait_event_killable(drv->tx_done_wq,
 				    kthread_should_stop() ||
-				    atomic_read(&drv->pending_write) == 0);
+				    axiado_mctp_tx_idle(drv));
 
 		if (kthread_should_stop()) {
 			dev_kfree_skb_any(skb);
@@ -520,7 +567,7 @@ static int axiado_mctp_tx_thread(void *arg)
 			continue;
 		}
 
-		memcpy_toio(drv->tx_shmem, skb->data, len);
+		memcpy(drv->tx_shmem, skb->data, len);
 
 		tx_counter = next_tx_counter++;
 		irot.command = irot_cc_mctp;
@@ -590,7 +637,7 @@ static int axiado_mctp_request_mailbox(struct axiado_mctp_drv *drv)
  * DTS example:
  *   mctp-mailbox {
  *       compatible = "axiado,ax3005-mctp-mailbox";
- *       memory-region = <&shm_a53_r52>, <&shm_r52_a53>;
+ *       memory-region = <&shm_ap_to_rot>, <&shm_rot_to_ap>;
  *       mbox-names = "tx", "rx";
  *       mboxes = <&mailbox 0>, <&mailbox 8>;
  *   };
@@ -602,7 +649,7 @@ static int axiado_mctp_init_shmem(struct axiado_mctp_drv *drv)
 	struct resource res;
 	int rc;
 
-	/* TX shmem: memory-region index 0 (A53 writes, R52 reads) */
+	/* TX shmem: memory-region index 0 (Processor writes, Co-Processor reads) */
 	shmem_np = of_parse_phandle(np, "memory-region", 0);
 	if (!shmem_np)
 		return dev_err_probe(drv->dev, -ENODEV,
@@ -615,7 +662,7 @@ static int axiado_mctp_init_shmem(struct axiado_mctp_drv *drv)
 	drv->tx_shmem_base = res.start;
 	drv->tx_shmem_size = resource_size(&res);
 
-	/* RX shmem: memory-region index 1 (R52 writes, A53 reads) */
+	/* RX shmem: memory-region index 1 (Co-Processor writes, Processor reads) */
 	shmem_np = of_parse_phandle(np, "memory-region", 1);
 	if (!shmem_np)
 		return dev_err_probe(drv->dev, -ENODEV,
@@ -671,7 +718,6 @@ static int axiado_mctp_probe(struct platform_device *pdev)
 	init_waitqueue_head(&drv->tx_wq);
 	init_waitqueue_head(&drv->tx_done_wq);
 	init_waitqueue_head(&drv->rx_wq);
-	atomic_set(&drv->pending_write, 0);
 	spin_lock_init(&drv->tx_state_lock);
 	spin_lock_init(&drv->rx_lock);
 
@@ -679,7 +725,7 @@ static int axiado_mctp_probe(struct platform_device *pdev)
 	if (rc)
 		return rc;
 
-	ndev = alloc_netdev(sizeof(*priv), "mctpmbox%d",
+	ndev = alloc_netdev(sizeof(*priv), "mctpirot%d",
 			    NET_NAME_ENUM, axiado_mctp_netdev_setup);
 	if (!ndev) {
 		rc = -ENOMEM;
@@ -705,13 +751,22 @@ static int axiado_mctp_probe(struct platform_device *pdev)
 		goto err_shmem;
 	}
 
+	/*
+	 * Acquire the mailbox channels before starting the kthreads. The RX
+	 * callback may then stash a message and wake the RX kthread; that is
+	 * harmless until the kthread is running.
+	 */
+	rc = axiado_mctp_request_mailbox(drv);
+	if (rc)
+		goto err_netdev;
+
 	drv->tx_thread = kthread_run(axiado_mctp_tx_thread, drv,
 				     "axiado_mctp_tx");
 	if (IS_ERR(drv->tx_thread)) {
 		rc = PTR_ERR(drv->tx_thread);
 		drv->tx_thread = NULL;
 		dev_err(dev, "failed to start TX kthread: %d\n", rc);
-		goto err_netdev;
+		goto err_mailbox;
 	}
 
 	drv->rx_thread = kthread_run(axiado_mctp_rx_thread, drv,
@@ -722,12 +777,8 @@ static int axiado_mctp_probe(struct platform_device *pdev)
 		dev_err(dev, "failed to start RX kthread: %d\n", rc);
 		kthread_stop(drv->tx_thread);
 		drv->tx_thread = NULL;
-		goto err_netdev;
+		goto err_mailbox;
 	}
-
-	rc = axiado_mctp_request_mailbox(drv);
-	if (rc)
-		goto err_threads;
 
 	netif_carrier_on(ndev);
 
@@ -738,11 +789,10 @@ static int axiado_mctp_probe(struct platform_device *pdev)
 
 	return 0;
 
-err_threads:
-	kthread_stop(drv->rx_thread);
-	drv->rx_thread = NULL;
-	kthread_stop(drv->tx_thread);
-	drv->tx_thread = NULL;
+err_mailbox:
+	drv->mailbox_ready = false;
+	mbox_free_channel(drv->rx_chan);
+	mbox_free_channel(drv->tx_chan);
 err_netdev:
 	mctp_unregister_netdev(ndev);
 	free_netdev(ndev);
@@ -759,10 +809,19 @@ static void axiado_mctp_remove(struct platform_device *pdev)
 	if (!drv)
 		return;
 
-	/* Step 1: stop accepting new TX from network stack */
 	drv->mailbox_ready = false;
 
-	/* Step 2: wake and stop kthreads FIRST before freeing channels */
+	/*
+	 * Step 1: unregister the netdev first. This calls ndo_stop and
+	 * quiesces the TX path so the stack can no longer queue new SKBs
+	 * while the rest of the resources are torn down. The net_device is
+	 * kept alive (freed at step 6) because the kthreads still touch its
+	 * stats.
+	 */
+	if (drv->ndev)
+		mctp_unregister_netdev(drv->ndev);
+
+	/* Step 2: wake and stop the kthreads before freeing the channels. */
 	wake_up(&drv->rx_wq);
 	wake_up(&drv->tx_wq);
 	wake_up(&drv->tx_done_wq);
@@ -776,6 +835,7 @@ static void axiado_mctp_remove(struct platform_device *pdev)
 		drv->tx_thread = NULL;
 	}
 
+	/* Step 3: free the mailbox channels (no more senders remain). */
 	if (drv->rx_chan) {
 		mbox_free_channel(drv->rx_chan);
 		drv->rx_chan = NULL;
@@ -785,9 +845,10 @@ static void axiado_mctp_remove(struct platform_device *pdev)
 		drv->tx_chan = NULL;
 	}
 
-	/* Step 4: cleanup */
+	/* Step 4: drain any SKBs still queued. */
 	skb_queue_purge(&drv->tx_queue);
 
+	/* Step 5: unmap the shared memory. */
 	if (drv->tx_shmem) {
 		memunmap(drv->tx_shmem);
 		drv->tx_shmem = NULL;
@@ -797,8 +858,8 @@ static void axiado_mctp_remove(struct platform_device *pdev)
 		drv->rx_shmem = NULL;
 	}
 
+	/* Step 6: free the net_device. */
 	if (drv->ndev) {
-		mctp_unregister_netdev(drv->ndev);
 		free_netdev(drv->ndev);
 		drv->ndev = NULL;
 	}
@@ -823,4 +884,4 @@ module_platform_driver(axiado_mctp_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Axiado AX3005 MCTP mailbox and shared memory transport driver");
-MODULE_AUTHOR("AXIADO CORPORATION");
+MODULE_AUTHOR("Axiado Corporation");

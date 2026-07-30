@@ -58,14 +58,16 @@ config MCTP_TRANSPORT_USB
 	  represents a physical connection to one remote MCTP endpoint.
 
 config AXIADO_MCTP_MAILBOX
-	tristate "Axiado MCTP over mailbox transport"
+	tristate "Axiado MCTP over shared memory and mailbox transport"
 	depends on MAILBOX
 	help
-	  MCTP transport driver for Axiado SoC platforms that use the
-	  Linux mailbox framework to exchange MCTP messages with a
-	  co-processor. A platform device node with compatible string
-	  "axiado,axiado-mctp-mailbox" and a named mailbox channel
-	  is required.
+	  MCTP transport for Axiado AX3005 SoC platforms. Packets are carried
+	  in two reserved shared-memory windows, one per direction, with a
+	  pair of mailbox channels used as doorbells and acknowledgements
+	  between the application processor and the on-chip co-processor.
+
+	  A new MCTP network device is created for each "axiado,ax3005-mctp-mailbox"
+	  device node.
 
 config MCTP_TRANSPORT_SPI
 	tristate "MCTP Over SPI Transprt"
