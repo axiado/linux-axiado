@@ -4256,8 +4256,8 @@ F:	drivers/spi/spi-axiado.c
 F:	drivers/spi/spi-axiado.h
 
 AXIADO MCTP MAILBOX DRIVER
+M:	Akhila Kavi <akavi@axiado.com>
 M:	Sammai Chakravarthy <schakravarthy@axiado.com>
-M:	Sridhar Pothuganti <spothuganti@axiado.com>
 M:	Prasad Bolisetty <pbolisetty@axiado.com>
 S:	Maintained
 F:	drivers/net/mctp/axiado-mctp-mailbox.c
