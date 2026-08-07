@@ -35,7 +35,7 @@ properties:
     description: |
       One interrupt per RX channel. The hardware exposes eight RX interrupt
       lines corresponding to channels 8 through 15.
-    minItems: 1
+    minItems: 8
     maxItems: 8
 
   interrupt-names:
