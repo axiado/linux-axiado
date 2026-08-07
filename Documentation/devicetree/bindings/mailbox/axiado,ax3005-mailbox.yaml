@@ -11,7 +11,7 @@ maintainers:
   - Prasad Bolisetty <pbolisetty@axiado.com>
   - Swark Yang <swark.yang@axiado.com>
 
-description: |
+description:
   The Axiado mailbox controller provides inter-processor communication
   channels between subsystems within the Axiado SoC. The hardware has
   separate TX and RX register regions. Only the RX channels (channels 8-15)
@@ -32,14 +32,13 @@ properties:
       - const: rx
 
   interrupts:
-    description: |
+    description:
       One interrupt per RX channel. The hardware exposes eight RX interrupt
       lines corresponding to channels 8 through 15.
-    minItems: 8
     maxItems: 8
 
   interrupt-names:
-    description: |
+    description:
       Named interrupt lines for each RX channel, from ch8 to ch15.
     items:
       - const: ch8
@@ -52,7 +51,7 @@ properties:
       - const: ch15
 
   "#mbox-cells":
-    description: |
+    description:
       Number of cells in a mailbox specifier. A single cell encodes the
       channel index as seen by the client.
     const: 1
@@ -93,6 +92,5 @@ examples:
                               "ch12", "ch13", "ch14", "ch15";
             interrupt-parent = <&gic500>;
             #mbox-cells = <1>;
-            status = "okay";
         };
     };
