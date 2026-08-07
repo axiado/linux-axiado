@@ -3,9 +3,11 @@
  * Copyright (c) 2021-2026 Axiado Corporation (or its affiliates).
  */
 
+#include <linux/atomic.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/bitfield.h>
+#include <linux/debugfs.h>
 #include <linux/iopoll.h>
 #include <linux/mailbox_controller.h>
 #include <linux/math.h>
@@ -22,7 +24,7 @@
 #define AXIADO_MBOX_TX_REG_STRIDE	0x40
 #define AXIADO_MBOX_RX_REG_STRIDE	0x30
 #define AXIADO_MBOX_RX_POLL_US		10
-#define AXIADO_MBOX_RX_TIMEOUT_US	500
+#define AXIADO_MBOX_RX_TIMEOUT_US	1000
 
 /* Mailbox CSR bit definitions */
 #define AXIADO_MBOX_CSR_EMPTY		BIT(0) /* 1 = FIFO empty; 0 = data available */
@@ -46,8 +48,8 @@ struct axiado_channel_data {
 	u8 channel_num;
 	int irq;
 	struct mbox_chan *chan;
-	u16 chan_msg_size;
 	bool active;
+	atomic_t fifo_errors;
 };
 
 /* mailbox side */
@@ -56,6 +58,7 @@ struct axiado_mbox {
 	const struct axiado_mbox_data *drv_data;
 	void __iomem *tx_base;
 	void __iomem *rx_base;
+	struct dentry *debugfs_dir;
 };
 
 /*
@@ -74,6 +77,7 @@ static bool axiado_mbox_clear_fifo_errors(struct axiado_channel_data *priv)
 		return false;
 
 	writel(errors, priv->csr_reg);
+	atomic_inc(&priv->fifo_errors);
 
 	dev_warn_ratelimited(dev, "Channel %u FIFO error: %#x\n",
 			     priv->channel_num, errors);
@@ -92,9 +96,6 @@ static int axiado_mbox_send_data(struct mbox_chan *chan, void *data)
 	unsigned int offset;
 	u32 msg_len;
 
-	if (priv->channel_num >= AXIADO_MBOX_TX_CHANS)
-		return -EINVAL;
-
 	if (!data)
 		return -EINVAL;
 
@@ -111,7 +112,7 @@ static int axiado_mbox_send_data(struct mbox_chan *chan, void *data)
 	axiado_mbox_clear_fifo_errors(priv);
 
 	if (!(readl(priv->csr_reg) & AXIADO_MBOX_CSR_EMPTY)) {
-		dev_warn(mb->mbox.dev, "Channel %u is busy\n", idx);
+		dev_warn_ratelimited(mb->mbox.dev, "Channel %u is busy\n", idx);
 		return -EBUSY;
 	}
 
@@ -130,21 +131,11 @@ static int axiado_mbox_send_data(struct mbox_chan *chan, void *data)
 	return 0;
 }
 
-static bool axiado_mbox_handle_rx_error(struct axiado_channel_data *priv)
-{
-	if (!axiado_mbox_clear_fifo_errors(priv))
-		return false;
-
-	/* Errors leave RX framing out of sync; flush and resync. */
-	writel(AXIADO_MBOX_CSR_FLUSH, priv->csr_reg);
-
-	return true;
-}
-
 static irqreturn_t axiado_rx_thread(int irq, void *dev_id)
 {
 	struct axiado_channel_data *priv = dev_id;
 	struct mbox_chan *chan = priv->chan;
+	struct axiado_mbox *mb = dev_get_drvdata(chan->mbox->dev);
 	u8 *buf = priv->rx_buffer;
 	unsigned int num_words;
 	unsigned int remaining;
@@ -154,8 +145,13 @@ static irqreturn_t axiado_rx_thread(int irq, void *dev_id)
 	u32 csr;
 	int ret;
 
-	if (axiado_mbox_handle_rx_error(priv))
-		return IRQ_HANDLED;
+	/*
+	 * Clear and log/count any pending errors, but don't discard data
+	 * on their account alone: a rejected overflow write doesn't
+	 * corrupt what was already safely queued ahead of it, so let the
+	 * length-based read below decide whether what's here is usable.
+	 */
+	axiado_mbox_clear_fifo_errors(priv);
 
 	csr = readl(priv->csr_reg);
 	if (csr & AXIADO_MBOX_CSR_EMPTY)
@@ -169,8 +165,7 @@ static irqreturn_t axiado_rx_thread(int irq, void *dev_id)
 	msg_len = word;
 	put_unaligned_le32(word, buf);
 
-	if (msg_len < sizeof(u32) ||
-	    msg_len > priv->chan_msg_size)
+	if (msg_len < sizeof(u32) || msg_len > mb->drv_data->msg_size)
 		goto invalid_message;
 
 	num_words = DIV_ROUND_UP(msg_len, sizeof(u32));
@@ -182,26 +177,23 @@ static irqreturn_t axiado_rx_thread(int irq, void *dev_id)
 	 */
 	if (remaining) {
 		ret = readl_poll_timeout(priv->csr_reg, csr,
-				(csr & AXIADO_MBOX_CSR_ERRORS) ||
-				FIELD_GET(AXIADO_MBOX_CSR_LEVEL, csr) >=
-					remaining,
-				AXIADO_MBOX_RX_POLL_US,
-				AXIADO_MBOX_RX_TIMEOUT_US);
+					 (csr & AXIADO_MBOX_CSR_ERRORS) ||
+					  FIELD_GET(AXIADO_MBOX_CSR_LEVEL, csr) >=
+					  remaining,
+					  AXIADO_MBOX_RX_POLL_US,
+					  AXIADO_MBOX_RX_TIMEOUT_US);
 		if (ret)
 			goto incomplete_message;
 
-		if (axiado_mbox_handle_rx_error(priv))
-			return IRQ_HANDLED;
+		axiado_mbox_clear_fifo_errors(priv);
 	}
 
 	for (i = 1; i < num_words; i++) {
 		word = readl(priv->mbox_reg);
-		put_unaligned_le32(word,
-				   buf + i * sizeof(u32));
+		put_unaligned_le32(word, buf + i * sizeof(u32));
 	}
 
-	if (axiado_mbox_handle_rx_error(priv))
-		return IRQ_HANDLED;
+	axiado_mbox_clear_fifo_errors(priv);
 
 	if (READ_ONCE(priv->active))
 		mbox_chan_received_data(chan, priv->rx_buffer);
@@ -223,8 +215,15 @@ static int axiado_mbox_startup(struct mbox_chan *chan)
 {
 	struct axiado_channel_data *priv = chan->con_priv;
 
-	writel(AXIADO_MBOX_CSR_FLUSH, priv->csr_reg);
-	writel(AXIADO_MBOX_CSR_ERRORS, priv->csr_reg);
+	/*
+	 * Only flush on a genuine error. A blind flush here would discard
+	 * a message the peer legitimately sent before this side started
+	 * up (e.g. during normal boot sequencing), which is not corrupt
+	 * and does not need resyncing.
+	 */
+	if (axiado_mbox_clear_fifo_errors(priv))
+		writel(AXIADO_MBOX_CSR_FLUSH, priv->csr_reg);
+
 	WRITE_ONCE(priv->active, true);
 
 	if (priv->channel_num >= AXIADO_MBOX_TX_CHANS)
@@ -242,7 +241,8 @@ static void axiado_mbox_shutdown(struct mbox_chan *chan)
 	if (priv->channel_num >= AXIADO_MBOX_TX_CHANS)
 		disable_irq(priv->irq);
 
-	writel(AXIADO_MBOX_CSR_FLUSH, priv->csr_reg);
+	if (axiado_mbox_clear_fifo_errors(priv))
+		writel(AXIADO_MBOX_CSR_FLUSH, priv->csr_reg);
 }
 
 static bool axiado_mbox_last_tx_done(struct mbox_chan *chan)
@@ -258,6 +258,11 @@ static const struct mbox_chan_ops axiado_mbox_chan_ops = {
 	.shutdown	= axiado_mbox_shutdown,
 	.last_tx_done	= axiado_mbox_last_tx_done,
 };
+
+static void axiado_mbox_debugfs_remove(void *dentry)
+{
+	debugfs_remove_recursive(dentry);
+}
 
 static int axiado_mbox_probe(struct platform_device *pdev)
 {
@@ -303,12 +308,23 @@ static int axiado_mbox_probe(struct platform_device *pdev)
 	if (!ch_data)
 		return -ENOMEM;
 
+	mb->debugfs_dir = debugfs_create_dir(dev_name(dev), NULL);
+	ret = devm_add_action_or_reset(dev, axiado_mbox_debugfs_remove,
+				       mb->debugfs_dir);
+	if (ret)
+		return ret;
+
 	for (i = 0; i < drv_data->num_chans; i++) {
+		char name[16];
+
 		ch_data[i].channel_num = i;
 		ch_data[i].chan = &mb->mbox.chans[i];
-		ch_data[i].chan_msg_size = drv_data->msg_size;
 
 		mb->mbox.chans[i].con_priv = &ch_data[i];
+
+		snprintf(name, sizeof(name), "chan%u-errors", i);
+		debugfs_create_atomic_t(name, 0444, mb->debugfs_dir,
+					&ch_data[i].fifo_errors);
 
 		if (i < AXIADO_MBOX_TX_CHANS) {
 			ch_data[i].mbox_reg = mb->tx_base + (i * AXIADO_MBOX_CHAN_STRIDE);
@@ -318,7 +334,7 @@ static int axiado_mbox_probe(struct platform_device *pdev)
 			continue;
 		}
 
-		ch_data[i].rx_buffer = devm_kmalloc(dev, drv_data->msg_size,
+		ch_data[i].rx_buffer = devm_kzalloc(dev, drv_data->msg_size,
 						    GFP_KERNEL);
 		if (!ch_data[i].rx_buffer)
 			return -ENOMEM;
