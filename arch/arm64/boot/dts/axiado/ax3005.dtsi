@@ -88,6 +88,13 @@
 		};
 	};
 
+	firmware {
+		optee: optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
+	};
+
 	reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -118,6 +125,11 @@
 		rot_fwu: rot_fwu@91800000 {
 			/* Reserved for ROT FWU scratch; ROT accesses directly, not used by Linux */
 			reg = <0x00 0x91800000 0x00 0x4400000>; /* R52 FWU scratch 68MB */
+			no-map;
+		};
+		secure_ddr: secure_ddr@88300000 {
+			/* TZ_RAM: TF-A BL31 + OP-TEE OS + TA space + SHMEM (16 MB) */
+			reg = <0x0 0x88300000 0x0 0x01000000>;
 			no-map;
 		};
 	};
