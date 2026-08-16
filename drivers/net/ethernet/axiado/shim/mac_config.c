@@ -207,20 +207,113 @@ static void sgmii_fast_sim(struct device *dev, int mac_idx)
 	shim_write_phy_word(sgmii_base + 0x195c, 0x7d);
 	shim_write_phy_word(sgmii_base + 0x1800, 0x000d);
 #else
+	shim_write_phy_word(sgmii_base + 0x2c, 0x00C10C92);
+	shim_write_phy_word(sgmii_base + 0x42c, 0x00000011);
+
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x22 << 2)),
+			    0x04083789); /* offset:1488 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x0a << 2)),
+			    0x640f80a0); /* offset:1428 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x0b << 2)),
+			    0x20001f01); /* offset:142c */
+
+	shim_write_phy_word(sgmii_base + ((0x01 << 10) + (0xc3 << 2)),
+			    0x00800000); /* offset:070c */
+	shim_write_phy_word(sgmii_base + ((0x01 << 10) + (0xc4 << 2)),
+			    0x00a00090); /* offset:0710 */
+
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x6f << 2)),
+			    0x00010001); /* offset:15bc */
+
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xc9 << 2)),
+			    0x00000061); /* offset:0b24 */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xca << 2)),
+			    0xffffff00); /* offset:0b28 */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xa2 << 2)),
+			    0x00020020); /* offset:0a88 */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xa4 << 2)),
+			    0x43009000); /* offset:0a90 */
+	shim_write_phy_word(sgmii_base + ((0x01 << 10) + (0x0a << 2)),
+			    0x0a0083e8); /* offset:0428 */
+
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x6f << 2)),
+			    0x00010001); /* offset:15bc */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xe3 << 2)),
+			    0x00000000); /* offset:0b8c */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xdb << 2)),
+			    0x00000001); /* offset:0b6c */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xdc << 2)),
+			    0x00010001); /* offset:0b70 */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xdd << 2)),
+			    0x40000102); /* offset:0b74 */
+	shim_write_phy_word(sgmii_base + ((0x01 << 10) + (0x99 << 2)),
+			    0xb8000380); /* offset:0664 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x50 << 2)),
+			    0xfffefffe); /* offset:1540 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x51 << 2)),
+			    0xfffefffe); /* offset:1544 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x52 << 2)),
+			    0xfffefffe); /* offset:1548 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x53 << 2)),
+			    0xfffefffe); /* offset:154c */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x54 << 2)),
+			    0xfffefffe); /* offset:1550 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x55 << 2)),
+			    0xfffefffe); /* offset:1554 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x56 << 2)),
+			    0xfffefffe); /* offset:1558 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x57 << 2)),
+			    0xfffefffe); /* offset:155c */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x58 << 2)),
+			    0xfffefffe); /* offset:1560 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x59 << 2)),
+			    0xfffefffe); /* offset:1564 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x5a << 2)),
+			    0xfffefffe); /* offset:1568 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x5b << 2)),
+			    0xfffefffe); /* offset:156c */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x5c << 2)),
+			    0xfffefffe); /* offset:1570 */
+	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x5d << 2)),
+			    0x0000fffe); /* offset:1574 */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xcb << 2)),
+			    0xffffffff); /* offset:0b2c */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xce << 2)),
+			    0xffffffff); /* offset:0b38 */
+	shim_write_phy_word(sgmii_base + ((0x02 << 10) + (0xcf << 2)),
+			    0xffffffff); /* offset:0b3c */
+
+	/* configure pll0 postdiv, offset:1090 */
 	shim_write_phy_word(sgmii_base + ((0x04 << 10) + (0x24 << 2)),
 			    0x23810c81);
 	shim_write_phy_word(sgmii_base + ((0x03 << 10) + (0x75 << 2)),
-			    0x00000000);
+			    0x00000000); /* offset:0dd4 */
 	shim_write_phy_word(sgmii_base + ((0x05 << 10) + (0x24 << 2)),
-			    0x00f08098);
-	shim_write_phy_word(sgmii_base + ((0x6 << 10) + (0x55 << 2)),
-			    0x00000000);
-	shim_write_phy_word(sgmii_base + ((0x6 << 10) + (0x56 << 2)),
-			    0x00000000);
-	shim_write_phy_word(sgmii_base + ((0x6 << 10) + (0x57 << 2)),
-			    0x0000007e);
-	shim_write_phy_word(sgmii_base + ((0x6 << 10) + (0x00 << 2)),
-			    0x0000000d);
+			    0x00f08098); /* offset:1490 */
+
+	shim_write_phy_word(sgmii_base + ((0x06 << 10) + (0x55 << 2)),
+			    0x00000000); /* offset:1954 */
+	shim_write_phy_word(sgmii_base + ((0x06 << 10) + (0x56 << 2)),
+			    0x00000000); /* offset:1958 */
+	shim_write_phy_word(sgmii_base + ((0x06 << 10) + (0x57 << 2)),
+			    0x0000007e); /* offset:195c */
+
+	/* enable GTX_CLK and RX_CLK clock stop capability, on GMII interface */
+	shim_write_phy_word(sgmii_base + ((0x06 << 10) + (0x00 << 2)),
+			    0x0000000d); /* offset:1800 */
+
+	shim_write_phy_word(sgmii_base + 0x0ddc, 0x0000001b);
+	shim_write_phy_word(sgmii_base + 0x0800, 0x85000002);
+	shim_write_phy_word(sgmii_base + 0x0400, 0x00086018);
+	shim_write_phy_word(sgmii_base + 0x0404, 0x0010a018);
+	shim_write_phy_word(sgmii_base + 0x0408, 0x04000018);
+	shim_write_phy_word(sgmii_base + 0x0bd0, 0x0ff03355);
+	shim_write_phy_word(sgmii_base + 0x0de0, 0x00000098);
+	shim_write_phy_word(sgmii_base + 0x0de4, 0x00000000);
+	shim_write_phy_word(sgmii_base + 0x0de8, 0x00000000);
+
+	udelay(5000);
+	dev_info(dev, "Serdes Configured Successfully\n");
 #endif
 }
 
