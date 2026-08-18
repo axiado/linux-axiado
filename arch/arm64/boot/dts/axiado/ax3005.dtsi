@@ -509,7 +509,7 @@
 			status = "disabled";
 		};
 
-		hcp@43000000 {
+		hcp: hcp@43000000 {
 			compatible = "axiado,ax3005-hcp";
 			#address-cells = <1>;
 			#size-cells = <0>;
