@@ -37,6 +37,12 @@
 #define AXIADO_MBOX_CSR_ERRORS		(AXIADO_MBOX_CSR_OVERFLOW | \
 					 AXIADO_MBOX_CSR_UNDERFLOW)
 
+enum axiado_mbox_frame_result {
+	AXIADO_MBOX_FRAME_EMPTY,
+	AXIADO_MBOX_FRAME_OK,
+	AXIADO_MBOX_FRAME_BAD,		/* malformed/incomplete; FIFO flushed */
+};
+
 struct axiado_mbox_data {
 	u8 num_chans;
 	u16 msg_size;
@@ -138,12 +144,6 @@ static int axiado_mbox_send_data(struct mbox_chan *chan, void *data)
 
 	return 0;
 }
-
-enum axiado_mbox_frame_result {
-	AXIADO_MBOX_FRAME_EMPTY,
-	AXIADO_MBOX_FRAME_OK,
-	AXIADO_MBOX_FRAME_BAD,		/* malformed/incomplete; FIFO flushed */
-};
 
 /*
  * Read and, if valid, deliver exactly one length-prefixed frame currently
@@ -383,7 +383,7 @@ static int axiado_mbox_probe(struct platform_device *pdev)
 		return ret;
 
 	for (i = 0; i < drv_data->num_chans; i++) {
-		char name[16];
+		char name[32];
 
 		ch_data[i].channel_num = i;
 		ch_data[i].chan = &mb->mbox.chans[i];
