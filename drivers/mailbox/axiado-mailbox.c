@@ -458,6 +458,6 @@ static struct platform_driver axiado_mbox_driver = {
 };
 module_platform_driver(axiado_mbox_driver);
 
-MODULE_AUTHOR("AXIADO CORPORATION");
+MODULE_AUTHOR("Axiado Corporation");
 MODULE_DESCRIPTION("Axiado Mailbox driver");
 MODULE_LICENSE("GPL");

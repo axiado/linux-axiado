@@ -4,12 +4,12 @@
 $id: http://devicetree.org/schemas/mailbox/axiado,ax3005-mailbox.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Axiado SoC Mailbox Controller
+title: Axiado AX3005 Mailbox Controller
 
 maintainers:
   - Krishnakumar Kesavan <kkesavan@axiado.com>
   - Prasad Bolisetty <pbolisetty@axiado.com>
-  - Swark Yang <swark.yang@axiado.com>
+  - Swark Yang <syang@axiado.com>
 
 description:
   The Axiado mailbox controller provides inter-processor communication
