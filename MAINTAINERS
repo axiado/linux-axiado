@@ -4257,13 +4257,14 @@ F:	Documentation/devicetree/bindings/spi/axiado,ax3000-spi.yaml
 F:	drivers/spi/spi-axiado.c
 F:	drivers/spi/spi-axiado.h
 
-AXIADO MCTP MAILBOX DRIVER
+AXIADO MCTP IROT DRIVER
 M:	Akhila Kavi <akavi@axiado.com>
 M:	Sammai Chakravarthy <schakravarthy@axiado.com>
+M:	Sridhar Pothuganti <spothuganti@axiado.com>
 M:	Prasad Bolisetty <pbolisetty@axiado.com>
 S:	Maintained
-F:	drivers/net/mctp/axiado-mctp-mailbox.c
-F:	Documentation/devicetree/bindings/net/axiado,axiado-mctp-mailbox.yaml
+F:	Documentation/devicetree/bindings/net/axiado,ax3005-mctp-irot.yaml
+F:	drivers/net/mctp/axiado-mctp-irot.c
 
 AXIADO USB DEVICE CONTROLLER DRIVER
 M:	Krutik Shah <krutikshah@axiado.com>
