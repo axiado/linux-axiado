@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/net/axiado,ax3005-mctp-irot.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Axiado AX3005 MCTP over Shared Memory + Mailbox Transport
+
+maintainers:
+  - Akhila Kavi <akavi@axiado.com>
+  - Sammai Chakravarthy <schakravarthy@axiado.com>
+  - Prasad Bolisetty <pbolisetty@axiado.com>
+
+description: |
+  MCTP transport between the AX3005 application processor and its
+  root-of-trust (RoT) co-processor. MCTP packets are carried in two
+  shared-memory windows, one per direction. A pair of mailbox channels is used
+  purely as doorbells and acknowledgements - a "tx" channel (Processor to
+  Co-Processor) and an "rx" channel (Co-Processor to Processor). A window
+  carries exactly one packet, so it also caps the MTU, and each window is
+  required to be at least the DMTF DSP0236 section 8.3 minimum MCTP MTU of
+  68 bytes.
+
+  Two peer firmwares are supported. They speak the same protocol and differ
+  only in who owns the windows, which is why the compatible selects between
+  them rather than a property:
+
+  "axiado,ax3005-mctp-irot"
+    The application processor owns the windows, so "memory-region" is
+    mandatory and authoritative. There is no firmware MTU limit in this
+    mode; the MTU is the size of the smaller of the two windows.
+
+  "axiado,ax3005-mctp-irot-v2"
+    The co-processor owns the windows and reports their addresses and an MTU
+    limit to the host at runtime, so "memory-region" is optional. When it is
+    present the reserved regions bound the negotiated windows: a window
+    reported outside them is rejected.
+
+properties:
+  compatible:
+    enum:
+      - axiado,ax3005-mctp-irot
+      - axiado,ax3005-mctp-irot-v2
+
+  memory-region:
+    items:
+      - description: TX shared memory (Processor writes, Co-Processor reads)
+      - description: RX shared memory (Co-Processor writes, Processor reads)
+
+  mboxes:
+    items:
+      - description: TX doorbell channel (Processor to Co-Processor)
+      - description: RX doorbell channel (Co-Processor to Processor)
+
+  mbox-names:
+    items:
+      - const: tx
+      - const: rx
+
+required:
+  - compatible
+  - mboxes
+  - mbox-names
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: axiado,ax3005-mctp-irot
+    then:
+      required:
+        - memory-region
+
+additionalProperties: false
+
+examples:
+  # Windows owned by the application processor and declared in DT.
+  - |
+    mctp-irot {
+        compatible = "axiado,ax3005-mctp-irot";
+        memory-region = <&shm_ap_to_rot>, <&shm_rot_to_ap>;
+        mboxes = <&mailbox0 0>, <&mailbox0 8>;
+        mbox-names = "tx", "rx";
+    };
+
+  # Negotiated windows: "memory-region" is omitted, so nothing bounds the
+  # windows the co-processor reports.
+  - |
+    mctp-irot {
+        compatible = "axiado,ax3005-mctp-irot-v2";
+        mboxes = <&mailbox0 0>, <&mailbox0 8>;
+        mbox-names = "tx", "rx";
+    };
