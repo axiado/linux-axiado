@@ -3,6 +3,23 @@ if MCTP
 
 menu "MCTP Device Drivers"
 
+config MCTP_AXIADO_IROT
+	tristate "MCTP transport over the Axiado AX3005 IRoT mailbox"
+	depends on MCTP && MAILBOX && OF
+	help
+	  MCTP transport for the RoT co-processor on Axiado AX3005 SoCs.
+	  Registers an AF_MCTP netdev (mctpirot0) so SPDM, PLDM and NSM
+	  run as normal AF_MCTP socket traffic.
+
+	  Packets flow over two shared-memory windows; the mailbox itself
+	  only carries 32-byte doorbell/ack messages, so a mailbox
+	  controller driver providing "tx"/"rx" channels is also needed.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called axiado-mctp-irot.
+
+	  If unsure, say N.
+
 config MCTP_SERIAL
 	tristate "MCTP serial transport"
 	depends on TTY
@@ -56,18 +73,6 @@ config MCTP_TRANSPORT_USB
 
 	  MCTP-over-USB interfaces are peer-to-peer, so each interface
 	  represents a physical connection to one remote MCTP endpoint.
-
-config AXIADO_MCTP_MAILBOX
-	tristate "Axiado MCTP over shared memory and mailbox transport"
-	depends on MAILBOX
-	help
-	  MCTP transport for Axiado AX3005 SoC platforms. Packets are carried
-	  in two reserved shared-memory windows, one per direction, with a
-	  pair of mailbox channels used as doorbells and acknowledgements
-	  between the application processor and the on-chip co-processor.
-
-	  A new MCTP network device is created for each "axiado,ax3005-mctp-mailbox"
-	  device node.
 
 config MCTP_TRANSPORT_SPI
 	tristate "MCTP Over SPI Transprt"
