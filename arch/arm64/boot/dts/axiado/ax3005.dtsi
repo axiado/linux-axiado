@@ -193,8 +193,16 @@
 		regulator-always-on;
 	};
 
-	mctp-mailbox {
-		compatible = "axiado,ax3005-mctp-mailbox";
+	/*
+	 * MCTP over the iROT mailbox. "compatible" picks the variant:
+	 *   "axiado,ax3005-mctp-irot" (default): A53 owns windows,
+	 *     "memory-region" mandatory, MTU is the smaller of the two windows.
+	 *   "axiado,ax3005-mctp-irot-v2": coprocessor owns windows,
+	 *     "memory-region" optional, MTU from firmware.
+	 */
+
+	mctp_irot: mctp-irot {
+		compatible = "axiado,ax3005-mctp-irot";
 		memory-region = <&shm_ap_to_rot>, <&shm_rot_to_ap>;
 		mboxes = <&mailbox0 0>, /* TX channel */
 			 <&mailbox0 8>; /* RX channel */
