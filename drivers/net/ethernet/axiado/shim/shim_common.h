@@ -45,7 +45,7 @@ struct device;
  * @enabled:   Whether this MAC interface is enabled.
  * @use_ncsi:  Whether this MAC is controlled by NC-SI.
  * @mdi_swap:  Whether MDI swapping is enabled (New feature).
- * @app_id:    Hardware application ID (used for indexing, 5 for 10G).
+ * @mac_idx:   MAC index, 0 t0 4
  * @phy_mode:  PHY interface mode (stored as u8).
  */
 struct mac_phy {
@@ -54,7 +54,7 @@ struct mac_phy {
 	bool enabled;
 	bool use_ncsi;
 	bool mdi_swap;
-	u8 app_id;
+	u8 mac_idx;
 	u8 phy_mode;
 };
 
@@ -71,7 +71,7 @@ bool mac_addr_app_id_rd(u8 app_id, u32 *mac_0, u32 *mac_1);
 bool mac_addr_app_id_wr(u8 app_id, u32 mac_0, u32 mac_1);
 bool mac_addr_mac_idx_rd(int mac_idx, u32 *mac_0, u32 *mac_1);
 bool mac_addr_mac_idx_wr(u8 mac_idx, u32 mac_0, u32 mac_1);
-void mac_update_promisc(int app_id, bool promisc);
+void mac_update_promisc(u8 mac_idx, bool promisc);
 void shim_mac_soft_reset(u8 mac_idx);
 
 /* MDIO register accessors */
@@ -93,8 +93,8 @@ bool is_rx_local_fault(u8 mac_idx);
 void hfifo_irq_enable(int mac_idx);
 void hfifo_irq_disable(int mac_idx);
 int hfifo_packet_tx(u8 *buf, u32 len);
-int hfifo_packet_rx(u8 *buf, u32 buf_len, u8 mac_idx);
-int hfifo_rx_pkt_len(u8 mac_idx);
+u32 hfifo_packet_rx(u8 *buf, u32 frmlen, u8 mac_idx);
+u32 hfifo_rx_pkt_frmlen(u8 mac_idx, u32 *mod, u32 *fifo_rst);
 void hfifo_reset_rx(u8 mac_idx);
 
 #endif /* _SHIM_COMMON_H_ */
