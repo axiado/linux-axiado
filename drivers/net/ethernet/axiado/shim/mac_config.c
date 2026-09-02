@@ -147,6 +147,27 @@ static enum AX_SHIM_STATUS mac_init_10g(struct device *dev, int mac_idx)
 	return SHIM_STATUS_SUCCESS;
 }
 
+#ifdef CONFIG_ARCH_AX3005
+/* wait for internal phy linkup */
+static bool eth_wait_internal_phy_linkup(u8 mac_idx)
+{
+	u32 sgmii_csr = SGMII_CSR_BASE + (mac_idx - 1) * SGMII_CSR_OFFSET;
+	u32 sgmii_base = SGMII_BASE + ((mac_idx - 1) * SGMII_CONFIG_RANGE);
+	u32 val, count = SGMII_IN_PHY_LINK_RETRY;
+
+	do {
+		udelay(SGMII_IN_PHY_LINK_DELAY);
+		val = shim_read_word(sgmii_csr);
+	} while ((!(val & BIT(SGMII_CSR_SYNC_STATUS)) ||
+		  !(val & BIT(SGMII_CSR_AUTO_NEG_COMPLETE))) &&
+		 --count);
+
+	val = shim_read_phy_word(sgmii_base + SGMII_IN_PHY_LINK);
+
+	return (count && (val & BIT(SGMII_IN_PHY_AUTO_NEG)));
+}
+#endif
+
 /**
  * sgmii_fast_sim - Hardware specific fixups for 1G MACs.
  * @dev: Device structure.
@@ -158,6 +179,7 @@ static enum AX_SHIM_STATUS mac_init_10g(struct device *dev, int mac_idx)
 static void sgmii_fast_sim(struct device *dev, int mac_idx)
 {
 	u32 sgmii_base = SGMII_BASE + ((mac_idx - 1) * SGMII_CONFIG_RANGE);
+	u32 retry;
 
 	if (mac_idx < 1 || mac_idx >= MAX_MAC_CNT)
 		return;
@@ -312,8 +334,24 @@ static void sgmii_fast_sim(struct device *dev, int mac_idx)
 	shim_write_phy_word(sgmii_base + 0x0de4, 0x00000000);
 	shim_write_phy_word(sgmii_base + 0x0de8, 0x00000000);
 
-	udelay(5000);
 	dev_info(dev, "Serdes Configured Successfully\n");
+
+	/* wait and retry for internal phy linkup */
+	retry = SGMII_RESET_RETRY_MAX;
+	while (retry) {
+		udelay(SGMII_IN_PHY_RETRY_DELAY);
+		if (eth_wait_internal_phy_linkup(mac_idx))
+			break;
+		/* soft reset the port */
+		shim_mac_soft_reset(mac_idx);
+
+		/* serDes PI configs */
+		shim_write_phy_word(sgmii_base + 0x2c, 0x00C10C92);
+		shim_write_phy_word(sgmii_base + 0x42c, 0x00000011);
+		retry--;
+	}
+	if (!retry)
+		dev_err(dev, "SGMII Internal PHY Link up failed\n");
 #endif
 }
 
@@ -563,14 +601,16 @@ EXPORT_SYMBOL_GPL(mac_addr_mac_idx_wr);
 
 /**
  * mac_update_promisc - Toggle promiscuous mode.
- * @app_id: Application ID.
+ * @mac_idx: MAC index.
  * @promisc: true to enable, false to disable.
  */
-void mac_update_promisc(int app_id, bool promisc)
+void mac_update_promisc(u8 mac_idx, bool promisc)
 {
-	u8 mac_idx = (app_id == MAC_10G_APPID) ? 0 : app_id;
 	u32 mac_base = MAC_BASE_OFFSET + (mac_idx * MAC_CONFIG_BYTE_CNT);
 	u32 cmd_cfg;
+
+	if (mac_idx >= MAX_MAC_CNT)
+		return;
 
 	cmd_cfg = shim_read_word(mac_base + R_COMMAND_CONFIG);
 

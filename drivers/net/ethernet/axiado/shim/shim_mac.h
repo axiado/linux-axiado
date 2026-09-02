@@ -18,6 +18,8 @@
 /* SGMII configuration constants */
 #define SGMII_BASE 0x0
 #define SGMII_CONFIG_RANGE 0x10000
+#define SGMII_IN_PHY_LINK 0x1bc4
+#define SGMII_IN_PHY_AUTO_NEG 0
 
 /* * 1G/SGMII MAC Configuration
  * 0x03f00008: Default cut-through FIFO settings

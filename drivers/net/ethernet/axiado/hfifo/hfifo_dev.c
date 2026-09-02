@@ -6,7 +6,10 @@
  */
 
 #include <linux/etherdevice.h>
+#include <linux/ethtool.h>
+#include <linux/if_vlan.h>
 #include <linux/netdevice.h>
+#include <linux/phy.h>
 
 #include "hfifo.h"
 #include "shim_common.h"
@@ -14,6 +17,41 @@
 
 #define NETDEV_NAME "eth0"
 #define HFIFO_NAPI_WEIGHT 64
+
+/**
+ * @brief hfifo_adjust_link - phylib link-state callback
+ *
+ * @param ndev - network interface device structure
+ *
+ * Registered with phy_connect(). phylib calls this on every link-state
+ * change, driven by the MAC/PHY link interrupt
+ */
+static void hfifo_adjust_link(struct net_device *ndev)
+{
+	struct hfifo_data *hdata = netdev_priv(ndev);
+	struct phy_device *phydev = ndev->phydev;
+
+	if (!phydev) {
+		netdev_warn(ndev, "No phydev attached\n");
+		return;
+	}
+
+	/* Only act on actual link-state transitions. */
+	if (phydev->link == hdata->link)
+		return;
+
+	hdata->link = phydev->link;
+
+	if (phydev->link) {
+		netif_start_queue(ndev);
+	} else {
+		netif_stop_queue(ndev);
+		/* Drop any stale data buffered in the SHIM FIFO. */
+		shim_fifo_reset(hdata->mac_idx);
+	}
+
+	phy_print_status(phydev);
+}
 
 /**
  * @brief hfifo_open - Called when a network interface is made active
@@ -25,16 +63,52 @@
 static int hfifo_open(struct net_device *ndev)
 {
 	struct hfifo_data *hdata = netdev_priv(ndev);
+	struct mac_phy *mac_cfg = hcp_get_mac_cfg(hdata->hcp);
+	struct phy_device *phydev = mac_cfg[hdata->mac_idx].phydev;
+	int err;
 
 	hfifo_reset_rx(hdata->mac_idx);
 	napi_enable(&hdata->napi_hfifo_rx);
+	/* rx and link irq enable */
 	hfifo_irq_enable(hdata->mac_idx);
-
 	netif_start_queue(ndev);
-	netif_carrier_on(ndev);
-	netdev_info(ndev, "Link is Up - 1Gbps/Full - flow control off\n");
+
+	if (phydev) {
+		hdata->link = false;
+		netif_carrier_off(ndev);
+		if (ndev->phydev && ndev->phydev->attached_dev) {
+			phydev = ndev->phydev;
+		} else {
+			/* Connect to the external PHY; the carrier and TX queue are
+			 * driven by hfifo_adjust_link() from here on.
+			 */
+			phydev = phy_connect(ndev, phydev_name(phydev),
+					     hfifo_adjust_link,
+					     mac_cfg[hdata->mac_idx].phy_mode);
+			if (IS_ERR(phydev)) {
+				err = PTR_ERR(phydev);
+				netdev_err(ndev, "Could not attach to PHY: %d\n", err);
+				goto err_disable;
+			}
+		}
+
+		phy_start(phydev);
+	} else {
+		/* No external PHY (e.g. DC-SCI port): assume a fixed
+		 * 1Gbps/Full link and force the carrier up.
+		 */
+		hdata->link = true;
+		netif_carrier_on(ndev);
+		netdev_info(ndev, "Link is Up - 1Gbps/Full - flow control off\n");
+	}
 
 	return 0;
+
+err_disable:
+	netif_stop_queue(ndev);
+	hfifo_irq_disable(hdata->mac_idx);
+	napi_disable(&hdata->napi_hfifo_rx);
+	return err;
 }
 
 /**
@@ -52,7 +126,13 @@ static int hfifo_close(struct net_device *ndev)
 	netif_carrier_off(ndev);
 	hfifo_irq_disable(hdata->mac_idx);
 	napi_disable(&hdata->napi_hfifo_rx);
-	netdev_info(ndev, "Link is Down\n");
+	if (ndev->phydev) {
+		phy_stop(ndev->phydev);
+		phy_disconnect(ndev->phydev);
+	} else {
+		hdata->link = false;
+		netdev_info(ndev, "Link is Down\n");
+	}
 
 	return 0;
 }
@@ -173,6 +253,207 @@ static const struct net_device_ops hfifo_ndo = {
 	.ndo_get_stats64 = hfifo_get_stats64,
 };
 
+/* Per-interface statistics exposed via `ethtool -S`. The order MUST match the
+ * fill order in hfifo_get_ethtool_stats(): 8 netdev counters, the MAC RX and
+ * MAC TX hardware counters.
+ */
+static const char hfifo_gstrings_stats[][ETH_GSTRING_LEN] = {
+	"rx_packets", "tx_packets", "rx_bytes", "tx_bytes",
+	"rx_errors", "tx_errors", "rx_dropped", "tx_dropped",
+	/* shim_read_mac_rx_stats() */
+	"mac_rx_good", "mac_rx_drop", "mac_rx_undersize_err", "mac_rx_total",
+	"mac_rx_crc_err", "mac_rx_if_in_err", "mac_rx_oversize_err",
+	"mac_rx_jabber_err", "mac_rx_frag_err",
+	/* shim_read_mac_tx_stats() */
+	"mac_tx_total", "mac_tx_good", "mac_tx_drop", "mac_tx_crc_err",
+	"mac_tx_if_out_err",
+};
+
+#define HFIFO_STATS_COUNT ARRAY_SIZE(hfifo_gstrings_stats)
+
+/**
+ * @brief hfifo_get_drvinfo - report driver identification
+ */
+static void hfifo_get_drvinfo(struct net_device *ndev,
+			      struct ethtool_drvinfo *info)
+{
+	strscpy(info->driver, "axiado-hfifo", sizeof(info->driver));
+	strscpy(info->version, "1.0", sizeof(info->version));
+	strscpy(info->fw_version, "N/A", sizeof(info->fw_version));
+	if (ndev->dev.parent)
+		strscpy(info->bus_info, dev_name(ndev->dev.parent),
+			sizeof(info->bus_info));
+	else
+		strscpy(info->bus_info, "unknown", sizeof(info->bus_info));
+}
+
+/**
+ * @brief hfifo_get_link_ksettings - report link settings from the PHY
+ *
+ * When no external PHY is present (forced-carrier fallback) report the
+ * assumed fixed 1Gbps/Full link.
+ */
+static int hfifo_get_link_ksettings(struct net_device *ndev,
+				    struct ethtool_link_ksettings *cmd)
+{
+	struct hfifo_data *hdata = netdev_priv(ndev);
+
+	if (ndev->phydev)
+		return phy_ethtool_get_link_ksettings(ndev, cmd);
+
+	cmd->base.speed = SPEED_1000;
+	cmd->base.duplex = DUPLEX_FULL;
+	cmd->base.autoneg = AUTONEG_DISABLE;
+	cmd->base.port = PORT_MII;
+	cmd->base.phy_address = hdata->mac_idx;
+
+	ethtool_link_ksettings_zero_link_mode(cmd, supported);
+	ethtool_link_ksettings_add_link_mode(cmd, supported, MII);
+	ethtool_link_ksettings_add_link_mode(cmd, supported, 1000baseT_Full);
+
+	return 0;
+}
+
+/**
+ * @brief hfifo_set_link_ksettings - apply link settings to the PHY
+ */
+static int hfifo_set_link_ksettings(struct net_device *ndev,
+				    const struct ethtool_link_ksettings *cmd)
+{
+	if (!ndev->phydev)
+		return -EOPNOTSUPP;
+
+	return phy_ethtool_set_link_ksettings(ndev, cmd);
+}
+
+/**
+ * @brief hfifo_get_pauseparam - report PHY pause-frame settings
+ */
+static void hfifo_get_pauseparam(struct net_device *ndev,
+				 struct ethtool_pauseparam *pause)
+{
+	bool tx_pause = false, rx_pause = false;
+
+	if (!ndev->phydev)
+		return;
+
+	phy_get_pause(ndev->phydev, &tx_pause, &rx_pause);
+	pause->autoneg = ndev->phydev->autoneg;
+	pause->tx_pause = tx_pause;
+	pause->rx_pause = rx_pause;
+}
+
+/**
+ * @brief hfifo_set_pauseparam - configure PHY pause-frame settings
+ */
+static int hfifo_set_pauseparam(struct net_device *ndev,
+				struct ethtool_pauseparam *pause)
+{
+	struct phy_device *phydev = ndev->phydev;
+
+	if (!phydev)
+		return -ENODEV;
+
+	if (!phy_validate_pause(phydev, pause))
+		return -EINVAL;
+
+	phy_set_sym_pause(phydev, pause->rx_pause, pause->tx_pause,
+			  pause->autoneg);
+
+	return 0;
+}
+
+/**
+ * @brief hfifo_get_wol - report Wake-on-LAN capabilities from the PHY
+ */
+static void hfifo_get_wol(struct net_device *ndev, struct ethtool_wolinfo *wol)
+{
+	wol->supported = 0;
+	wol->wolopts = 0;
+
+	if (ndev->phydev)
+		phy_ethtool_get_wol(ndev->phydev, wol);
+}
+
+/**
+ * @brief hfifo_set_wol - configure Wake-on-LAN on the PHY
+ */
+static int hfifo_set_wol(struct net_device *ndev, struct ethtool_wolinfo *wol)
+{
+	if (!ndev->phydev)
+		return -EOPNOTSUPP;
+
+	return phy_ethtool_set_wol(ndev->phydev, wol);
+}
+
+/**
+ * @brief hfifo_get_strings - report statistics names
+ */
+static void hfifo_get_strings(struct net_device *ndev, u32 sset, u8 *data)
+{
+	if (sset != ETH_SS_STATS)
+		return;
+
+	memcpy(data, hfifo_gstrings_stats, sizeof(hfifo_gstrings_stats));
+}
+
+/**
+ * @brief hfifo_get_sset_count - report number of statistics
+ */
+static int hfifo_get_sset_count(struct net_device *ndev, int sset)
+{
+	if (sset != ETH_SS_STATS)
+		return -EOPNOTSUPP;
+
+	return HFIFO_STATS_COUNT;
+}
+
+/**
+ * @brief hfifo_get_ethtool_stats - collect netdev and SHIM/MAC HW counters
+ */
+static void hfifo_get_ethtool_stats(struct net_device *ndev,
+				    struct ethtool_stats *stats, u64 *data)
+{
+	struct hfifo_data *hdata = netdev_priv(ndev);
+	struct rtnl_link_stats64 *s = &hdata->stats64;
+	u32 mac_rx[9] = { 0 };
+	u32 mac_tx[5] = { 0 };
+	int i, j = 0;
+
+	data[j++] = s->rx_packets;
+	data[j++] = s->tx_packets;
+	data[j++] = s->rx_bytes;
+	data[j++] = s->tx_bytes;
+	data[j++] = s->rx_errors;
+	data[j++] = s->tx_errors;
+	data[j++] = s->rx_dropped;
+	data[j++] = s->tx_dropped;
+
+	shim_read_mac_rx_stats(mac_rx, hdata->mac_idx);
+	for (i = 0; i < 9; i++)
+		data[j++] = mac_rx[i];
+
+	shim_read_mac_tx_stats(mac_tx, hdata->mac_idx);
+	for (i = 0; i < 5; i++)
+		data[j++] = mac_tx[i];
+}
+
+/* phylib-backed ethtool operations (link settings come from the PHY) */
+static const struct ethtool_ops hfifo_ethtool_ops = {
+	.get_drvinfo = hfifo_get_drvinfo,
+	.get_link = ethtool_op_get_link,
+	.nway_reset = phy_ethtool_nway_reset,
+	.get_link_ksettings = hfifo_get_link_ksettings,
+	.set_link_ksettings = hfifo_set_link_ksettings,
+	.get_pauseparam = hfifo_get_pauseparam,
+	.set_pauseparam = hfifo_set_pauseparam,
+	.get_wol = hfifo_get_wol,
+	.set_wol = hfifo_set_wol,
+	.get_strings = hfifo_get_strings,
+	.get_sset_count = hfifo_get_sset_count,
+	.get_ethtool_stats = hfifo_get_ethtool_stats,
+};
+
 /**
  * @brief hfifo_rx_poll - NAPI poll function
  *
@@ -187,34 +468,43 @@ static int hfifo_rx_poll(struct napi_struct *napi, int budget)
 	struct net_device *ndev = hdata->ndev;
 	struct sk_buff *skb;
 	int work_done = 0;
-	int pkt_len;
+	u32 frmlen, pkt_len, buf_len, frmstat, max_frame, mod, fifo_rst;
 
+	max_frame = ndev->mtu + VLAN_ETH_HLEN + ETH_FCS_LEN;
 	while (work_done < budget) {
-		pkt_len = hfifo_rx_pkt_len(hdata->mac_idx);
-		if (pkt_len > 0) {
-			skb = napi_alloc_skb(napi, pkt_len + NET_IP_ALIGN);
-			if (!skb) {
-				net_stats->rx_dropped++;
-				break;
+		frmlen = hfifo_rx_pkt_frmlen(hdata->mac_idx, &mod, &fifo_rst);
+		if (frmlen) {
+			buf_len = frmlen * 4;
+			pkt_len = buf_len - ((4 - mod) % 4);
+			if (pkt_len < ETH_ZLEN || pkt_len > max_frame) {
+				fifo_rst = 1;
+			} else {
+				skb = napi_alloc_skb(napi, buf_len + NET_IP_ALIGN);
+				if (!skb) {
+					net_stats->rx_dropped++;
+					break;
+				}
+				skb_reserve(skb, NET_IP_ALIGN);
+				frmstat = hfifo_packet_rx(skb_put(skb, buf_len),
+						frmlen, hdata->mac_idx);
+				skb_trim(skb, pkt_len);
+				skb->protocol = eth_type_trans(skb, ndev);
+				skb->ip_summed = CHECKSUM_NONE;
+				napi_gro_receive(napi, skb);
+				net_stats->rx_packets++;
+				net_stats->rx_bytes += pkt_len;
+				work_done++;
 			}
+		}
 
-			skb_reserve(skb, NET_IP_ALIGN);
-			hfifo_packet_rx(skb_put(skb, pkt_len), pkt_len,
-					hdata->mac_idx);
-			skb->protocol = eth_type_trans(skb, ndev);
-			skb->ip_summed = CHECKSUM_NONE;
-			napi_gro_receive(napi, skb);
-
-			net_stats->rx_packets++;
-			net_stats->rx_bytes += pkt_len;
-			work_done++;
-		} else {
-			if (pkt_len < 0) {
-				hfifo_reset_rx(hdata->mac_idx);
-				net_stats->rx_errors++;
-			}
+		if (fifo_rst) {
+			hfifo_reset_rx(hdata->mac_idx);
+			net_stats->rx_errors++;
 			break;
 		}
+
+		if (!frmlen)
+			break;
 	}
 
 	if (work_done < budget && napi_complete_done(napi, work_done))
@@ -233,6 +523,7 @@ static void hfifo_setup(struct net_device *ndev)
 {
 	ether_setup(ndev);
 	ndev->netdev_ops = &hfifo_ndo;
+	ndev->ethtool_ops = &hfifo_ethtool_ops;
 
 	/* HW MAC address write is atomic; no need to bring the link down to
 	 * change it.

@@ -172,6 +172,12 @@ void hfifo_irq_enable(int mac_idx)
 		return;
 	}
 
+	/* Clear stale W1C link-status bits in the MAC Monitor register so a
+	 * link interrupt is not raised spuriously the moment it is enabled.
+	 */
+	shim_write_word(SHIM_MAC_MON + (mac_idx * SHIM_MAC_REG_ADDR_SIZE),
+			MON_REG_BIT_AUTO_NEG_MON | MON_REG_BIT_SYNC_STATUS_MON);
+
 	mon_addr = RX_PACKET_FIFO_0;
 	csr_addr = SHIM_MAC_IRQ_CSR + (mac_idx * SHIM_MAC_REG_ADDR_SIZE);
 
@@ -182,8 +188,11 @@ void hfifo_irq_enable(int mac_idx)
 	shim_write_word(mon_addr, val);
 
 	val = shim_read_word(csr_addr);
-	val &= ~CSR_REG_BIT_MACPHY_IRQ_EN;
-	val |= CSR_REG_BIT_MAC_IRQ_EN | CSR_REG_BIT_HPI_IRQ_EN;
+	/* Enable the Host FIFO RX-data (HPI), MAC and MAC/PHY link interrupts.
+	 * The MAC/PHY link interrupt drives phylib link-change notifications.
+	 */
+	val |= CSR_REG_BIT_MAC_IRQ_EN | CSR_REG_BIT_HPI_IRQ_EN |
+	       CSR_REG_BIT_MACPHY_IRQ_EN;
 	val |= CSR_REG_BIT_MAC_MON | CSR_REG_BIT_MACPHY_MON |
 	       CSR_REG_BIT_RX_FIFO_MON;
 	shim_write_word(csr_addr, val);
@@ -271,6 +280,43 @@ void shim_mac_enable_all_irq(void)
 }
 EXPORT_SYMBOL_GPL(shim_mac_enable_all_irq);
 
+/**
+ * shim_irq_ack - Acknowledges interrupt & check for interested bits.
+ * @mac_id: MAC index
+ *
+ * Return: 1 if spurious (no interested bits set), 0 otherwise.
+ */
+static int shim_irq_ack(int mac_id)
+{
+	u32 val, csr_val, csr_addr, mon_addr;
+
+	if (!shim_get_dev() || !shim_mac_idx_valid(mac_id))
+		return 1;
+
+	csr_addr = SHIM_MAC_IRQ_CSR + (mac_id * SHIM_MAC_REG_ADDR_SIZE);
+	mon_addr = SHIM_MAC_MON + (mac_id * SHIM_MAC_REG_ADDR_SIZE);
+
+	/* Read monitor reg to check status */
+	val = shim_read_word(mon_addr);
+
+	if ((val & MON_REG_BIT_SYNC_STATUS_MON) ||
+	    (val & MON_REG_BIT_AUTO_NEG_MON)) {
+		/* Clear W1C bits in Monitor Reg */
+		shim_write_word(mon_addr, MON_REG_BIT_AUTO_NEG_MON |
+					  MON_REG_BIT_SYNC_STATUS_MON);
+
+		/* Clear W1C bits in CSR reg */
+		csr_val = shim_read_word(csr_addr);
+		csr_val |= CSR_REG_BIT_MACPHY_MON | CSR_REG_BIT_MAC_MON;
+		shim_write_word(csr_addr, csr_val);
+	} else {
+		/* Spurious or unrelated interrupt */
+		return 1;
+	}
+
+	return 0;
+}
+
 static int hfifo_irq_ack(int mac_id)
 {
 	const u32 csr_mon_mask = CSR_REG_BIT_MAC_MON | CSR_REG_BIT_MACPHY_MON |
@@ -305,11 +351,14 @@ static int hfifo_irq_ack(int mac_id)
 }
 
 /**
- * hfifo_phy_interrupt_handler - IRQ handler for given HFIFO MAC
+ * hfifo_phy_interrupt_handler - Combined IRQ handler for the HFIFO MAC
  * @irq: IRQ number
- * @data: Pointer to mac_phy structure
+ * @data: Pointer to hfifo_priv structure
  *
- * Handle the interrupt and schedule HFIFO NAPI
+ * The Host FIFO MAC has a single IRQ line that carries both MAC/PHY
+ * link-change events and Host FIFO RX-data events. Acknowledge both
+ * sources: notify phylib on a link change, and schedule the RX NAPI
+ * poller on available RX data.
  *
  * Return: IRQ_HANDLED or IRQ_NONE
  */
@@ -317,7 +366,9 @@ irqreturn_t hfifo_phy_interrupt_handler(int irq, void *data)
 {
 	struct hfifo_priv *hpriv = data;
 	struct device *dev = shim_get_dev();
+	struct phy_device *phydev;
 	struct hfifo_data *hdata;
+	bool link, rx;
 	int mac_id;
 
 	if (!hpriv || !hpriv->data || !dev)
@@ -332,16 +383,30 @@ irqreturn_t hfifo_phy_interrupt_handler(int irq, void *data)
 		return IRQ_NONE;
 	}
 
-	if (hfifo_irq_ack(mac_id))
-		return IRQ_HANDLED;
+	/* Check and acknowledge interrupt sources on this shared line. */
+	link = !shim_irq_ack(mac_id);
+	rx = !hfifo_irq_ack(mac_id);
 
-	hfifo_irq_disable(mac_id);
-	if (likely(napi_schedule_prep(&hdata->napi_hfifo_rx)))
-		__napi_schedule(&hdata->napi_hfifo_rx);
-	else
-		dev_err_ratelimited(dev,
-				    "MAC-%d: failed to schedule HFIFO RX NAPI\n",
-				    mac_id);
+	if (!link && !rx)
+		return IRQ_NONE;
+
+	/* Link-change: let phylib re-read the PHY and run adjust_link */
+	if (link) {
+		phydev = shim_admin.mac_cfg[mac_id].phydev;
+		if (phydev)
+			phy_mac_interrupt(phydev);
+	}
+
+	/* RX data available: throttle the line and run the NAPI poller */
+	if (rx) {
+		hfifo_irq_disable(mac_id);
+		if (likely(napi_schedule_prep(&hdata->napi_hfifo_rx)))
+			__napi_schedule(&hdata->napi_hfifo_rx);
+		else
+			dev_err_ratelimited(dev,
+					    "MAC-%d: failed to schedule HFIFO RX NAPI\n",
+					    mac_id);
+	}
 
 	return IRQ_HANDLED;
 }

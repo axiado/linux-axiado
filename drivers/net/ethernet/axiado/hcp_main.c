@@ -38,7 +38,7 @@ static int hcp_hfifo_init(struct platform_device *pdev,
 	struct device_node *child;
 	struct hfifo_priv *hpriv = NULL;
 	u32 mac_idx = 0;
-	int ret = 0;
+	int ret = -EINVAL;
 
 	child = of_get_child_by_name(dev->of_node, "hfifo");
 	if (child) {

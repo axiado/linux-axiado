@@ -247,6 +247,15 @@ void mmd_write(u32 port_no, u32 mmd, u32 addr, u32 value);
 #define RX_FIFO_RDATA 0
 
 #define HPI_CSR 0x014
+#define SGMII_CSR_BASE 0x120
+#define SGMII_CSR_OFFSET 4
+
+#define SGMII_CSR_SYNC_STATUS 0
+#define SGMII_CSR_AUTO_NEG_COMPLETE 1
+#define SGMII_RESET_RETRY_MAX 10
+#define SGMII_IN_PHY_LINK_RETRY 100
+#define SGMII_IN_PHY_LINK_DELAY 100
+#define SGMII_IN_PHY_RETRY_DELAY 5000
 
 /* Port Control Register */
 #define REG_XGE_PORT_CTRL 0x0000

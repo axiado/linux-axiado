@@ -40,17 +40,101 @@
 struct shim_mem_admin shim_admin;
 
 /**
- * shim_read_shim_stats - function to read the shim stats
- * @shim_stat: (out) array to store the stat data
- * @mac_idx:  mac index
+ * mdio_reg_read - callback passed to mii_bus for mdio read (Clause 22)
+ * @bus: bus that was registered
+ * @phy_addr: phy-addr on the bus (0-4)
+ * @regnum: phy-register where value to be read from
+ *
+ * Return: data read from mdio register, or negative errno
  */
-void shim_read_shim_stats(u32 shim_stat[], int mac_idx)
+static int mdio_reg_read(struct mii_bus *bus, int phy_addr, int regnum)
 {
-	shim_stat[0] = shim_read_word(SHIM_RX_PKTS + (mac_idx * 4));
-	shim_stat[1] = shim_read_word(SHIM_RX_GOOD_PKTS + (mac_idx * 4));
-	shim_stat[2] = shim_read_word(SHIM_RX_BAD_PKTS + (mac_idx * 4));
+	u32 val = 0;
+	int ret;
+
+	/* Use phy_mask to check if PHY is present/enabled on the bus */
+	if (phy_addr < 0 || phy_addr >= MAX_MAC_CNT ||
+	    !(bus->phy_mask & (0x1 << phy_addr)))
+		return -ENODEV;
+
+	ret = mdiobus_reg_read(phy_addr, regnum, &val);
+	return ret ? ret : (int)val;
 }
-EXPORT_SYMBOL_GPL(shim_read_shim_stats);
+
+/**
+ * mdio_reg_write - callback passed to mii_bus for mdio write (Clause 22)
+ * @bus: bus that was registered
+ * @phy_addr: phy-addr on the bus (0-4)
+ * @regnum: phy-register where value to be written
+ * @value: value to be written on the above register
+ *
+ * Return: 0 on success, or -ENODEV
+ */
+static int mdio_reg_write(struct mii_bus *bus, int phy_addr, int regnum,
+			  u16 value)
+{
+	struct device *dev = bus->parent;
+
+	/* Use phy_mask to check if PHY is present/enabled on the bus */
+	if (phy_addr < 0 || phy_addr >= MAX_MAC_CNT ||
+	    !(bus->phy_mask & (0x1 << phy_addr)))
+		return -ENODEV;
+
+	dev_dbg(dev, "%s: phy_addr=%d, reg=0x%04x, val=0x%04x\n", __func__,
+		phy_addr, regnum, value);
+	mdiobus_reg_write(phy_addr, regnum, value);
+	return 0;
+}
+
+/**
+ * mdio_reg_read_c45 - callback passed to mii_bus for mdio read (Clause 45)
+ * @bus: bus that was registered
+ * @phy_addr: phy-addr on the bus (0-4)
+ * @dev: MMD (device address)
+ * @regnum: phy-register where value to be read from
+ *
+ * Return: data read from mdio register, or negative errno
+ */
+static int mdio_reg_read_c45(struct mii_bus *bus, int phy_addr, int dev,
+			     int regnum)
+{
+	u32 val = 0;
+	int ret;
+
+	/* Use phy_mask to check if PHY is present/enabled on the bus */
+	if (phy_addr < 0 || phy_addr >= MAX_MAC_CNT ||
+	    !(bus->phy_mask & (0x1 << phy_addr)))
+		return -ENODEV;
+
+	ret = mdiobus_reg_read_c45(phy_addr, dev, regnum, &val);
+	return ret ? ret : (int)val;
+}
+
+/**
+ * mdio_reg_write_c45 - callback passed to mii_bus for mdio write (Clause 45)
+ * @bus: bus that was registered
+ * @phy_addr: phy-addr on the bus (0-4)
+ * @dev: MMD (device address)
+ * @regnum: phy-register where value to be written
+ * @value: value to be written on the above register
+ *
+ * Return: 0 on success, or -ENODEV
+ */
+static int mdio_reg_write_c45(struct mii_bus *bus, int phy_addr, int dev,
+			      int regnum, u16 value)
+{
+	struct device *pdev = bus->parent;
+
+	/* Use phy_mask to check if PHY is present/enabled on the bus */
+	if (phy_addr < 0 || phy_addr >= MAX_MAC_CNT ||
+	    !(bus->phy_mask & (0x1 << phy_addr)))
+		return -ENODEV;
+
+	dev_dbg(pdev, "%s: phy_addr=%d, dev=%d, reg=0x%04x, val=0x%04x\n",
+		__func__, phy_addr, dev, regnum, value);
+	mdiobus_reg_write_c45(phy_addr, dev, regnum, value);
+	return 0;
+}
 
 /**
  * shim_read_mac_rx_stats - to read the rx mac stats
@@ -157,7 +241,7 @@ static int shim_parse_mac_node(struct device *dev, struct device_node *child,
 
 	mac_cfg->enabled = true;
 
-	mac_cfg->app_id = mac_idx ? mac_idx : MAC_10G_APPID;
+	mac_cfg->mac_idx = mac_idx;
 
 	/* Parse use-ncsi (optional) */
 	mac_cfg->use_ncsi = of_property_read_bool(child, "use-ncsi");
@@ -182,9 +266,9 @@ static int shim_parse_mac_node(struct device *dev, struct device_node *child,
 	if (has_phy && phy_mask)
 		*phy_mask |= (1 << mac_idx);
 
-	pr_warn("MAC-%u: use_ncsi: %u, swap-abcd: %u, app_id: %u, phy_mode: %u, phy: %s\n",
-		mac_idx, mac_cfg->use_ncsi, mac_cfg->mdi_swap, mac_cfg->app_id,
-		mac_cfg->phy_mode, has_phy ? "yes" : "no");
+	pr_warn("MAC-%u: use_ncsi: %u, swap-abcd: %u, phy_mode: %u, phy: %s\n",
+		mac_idx, mac_cfg->use_ncsi, mac_cfg->mdi_swap, mac_cfg->phy_mode,
+		has_phy ? "yes" : "no");
 
 	return 0;
 }
@@ -203,6 +287,7 @@ static int shim_parse_mac_config(struct hcp_device *hcp,
 				 struct shim_mem_admin *shim, u32 *phy_mask)
 {
 	struct platform_device *pdev = hcp->pdev;
+	struct hfifo_priv *hpriv = hcp->hfifo_priv;
 	struct device *dev = &pdev->dev;
 	struct device_node *child;
 	u32 mac_idx;
@@ -231,6 +316,10 @@ static int shim_parse_mac_config(struct hcp_device *hcp,
 			continue;
 		}
 
+		/* skip not required MACs */
+		if (mac_idx != hpriv->mac_idx)
+			continue;
+
 		/* Parse this MAC's configuration */
 		ret = shim_parse_mac_node(dev, child, &shim->mac_cfg[mac_idx],
 					  mac_idx, phy_mask);
@@ -239,6 +328,131 @@ static int shim_parse_mac_config(struct hcp_device *hcp,
 				 mac_idx, ret);
 			/* Continue parsing other MACs */
 		}
+	}
+
+	return 0;
+}
+
+/**
+ * shim_setup_mdio_irqs - Configure MDIO bus IRQ array from HCP IRQs
+ * @hcp: HCP device structure
+ * @shim: Shim admin structure
+ * @phy_mask: Bitmask of MACs that have a phy-handle in Device Tree
+ *
+ * Populates mac_cfg[].mac_irq for MACs that have both an HCP IRQ and
+ * a phy-handle in DT. MACs without phy-handle (e.g. DC-SCI) have no
+ * external PHY, so assigning an IRQ to them serves no purpose.
+ */
+static void shim_setup_mdio_irqs(struct hcp_device *hcp,
+				 struct shim_mem_admin *shim, u32 phy_mask)
+{
+	struct device *dev = hcp->dev;
+	int i;
+
+	for (i = 0; i < MAX_MAC_CNT; i++) {
+		if (!shim->mac_cfg[i].enabled)
+			continue;
+
+		if (!(phy_mask & BIT(i))) {
+			shim->mac_cfg[i].mac_irq = 0;
+			dev_dbg(dev, "MAC-%d: no phy-handle, skipping IRQ\n", i);
+			continue;
+		}
+
+		/* Get IRQ from HCP device structure */
+		if (hcp->mac_irqs[i] > 0) {
+			shim->mac_cfg[i].mac_irq = hcp->mac_irqs[i];
+			dev_dbg(dev, "MAC-%d: IRQ %d assigned\n", i,
+				hcp->mac_irqs[i]);
+		} else {
+			shim->mac_cfg[i].mac_irq = 0;
+			dev_dbg(dev, "MAC-%d: no IRQ, using PHY_POLL\n", i);
+		}
+	}
+}
+
+/**
+ * shim_register_mdio_bus - Allocate and register MDIO bus
+ * @hcp: HCP device structure
+ * @shim: Shim admin structure
+ * @phy_mask: Bitmask of MACs with external PHYs
+ *
+ * Registers an MDIO bus so phylib can discover and manage the external PHYs
+ * declared under the "mdio" Device Tree subnode. Caches the per-MAC PHY device
+ * pointer in mac_cfg[].phydev so the Host FIFO netdev can phy_connect() to it.
+ *
+ * Return: 0 on success, negative on error
+ */
+static int shim_register_mdio_bus(struct hcp_device *hcp,
+				  struct shim_mem_admin *shim, u32 phy_mask)
+{
+	struct device *dev = hcp->dev;
+	struct device_node *mdio_np;
+	int ret, i;
+
+	dev_info(dev, "MDIO phy_mask: 0x%x\n", phy_mask);
+
+	/* Allocate MDIO bus */
+	shim->mii = devm_mdiobus_alloc(dev);
+	if (!shim->mii) {
+		dev_err(dev, "Failed to allocate MDIO bus\n");
+		return -ENOMEM;
+	}
+
+	/* Configure MDIO bus */
+	shim->mii->name = "ax-mii";
+	shim->mii->read = mdio_reg_read;
+	shim->mii->write = mdio_reg_write;
+	shim->mii->read_c45 = mdio_reg_read_c45;
+	shim->mii->write_c45 = mdio_reg_write_c45;
+	shim->mii->parent = dev;
+	snprintf(shim->mii->id, MII_BUS_ID_SIZE, "%s", dev_name(dev));
+	shim->mii->phy_mask = phy_mask;
+
+	/* All PHYs are marked PHY_POLL: link-change events are delivered by the
+	 * SHIM MAC/PHY link interrupt via phy_mac_interrupt()
+	 */
+	for (i = 0; i < PHY_MAX_ADDR; i++)
+		shim->mii->irq[i] = PHY_POLL;
+
+	/* Find MDIO subnode in Device Tree */
+	mdio_np = of_get_child_by_name(dev->of_node, "mdio");
+	if (!mdio_np) {
+		dev_err(dev, "MDIO subnode not found in Device Tree\n");
+		return -ENODEV;
+	}
+
+	/* Setup IRQs for mac_cfg from HCP (only for MACs with phy-handle) */
+	shim_setup_mdio_irqs(hcp, shim, phy_mask);
+
+	/* Register MDIO bus with kernel */
+	shim->mii->dev.of_node = mdio_np;
+	ret = of_mdiobus_register(shim->mii, mdio_np);
+	if (ret) {
+		dev_err(dev, "Failed to register MDIO bus: %d\n", ret);
+		of_node_put(mdio_np);
+		return ret;
+	}
+	of_node_put(mdio_np);
+
+	dev_info(dev, "Registered MDIO bus: %s\n", shim->mii->name);
+
+	/* Cache mac_cfg[].phydev so the Host FIFO netdev can discover
+	 * which MACs have external PHYs and phy_connect() to them.
+	 */
+	for (i = 0; i < MAX_MAC_CNT; i++) {
+		struct phy_device *phydev;
+
+		if (!shim->mac_cfg[i].enabled || !(phy_mask & (1 << i)))
+			continue;
+
+		phydev = mdiobus_get_phy(shim->mii, i);
+		if (!phydev) {
+			dev_warn(dev, "MAC-%d: no PHY found on MDIO\n", i);
+			continue;
+		}
+
+		shim->mac_cfg[i].phydev = phydev;
 	}
 
 	return 0;
@@ -269,25 +483,25 @@ static int shim_register_mac_interrupts(struct hcp_device *hcp,
 	/* Format IRQ name */
 	if (mac_idx == 0)
 		snprintf(shim->mii_irq_name[mac_idx],
-			 SHIM_MAC_IRQ_NAME_LEN, "xgmii");
+				SHIM_MAC_IRQ_NAME_LEN, "xgmii");
 	else
 		snprintf(shim->mii_irq_name[mac_idx],
-			 SHIM_MAC_IRQ_NAME_LEN, "gmii%d", mac_idx - 1);
+				SHIM_MAC_IRQ_NAME_LEN, "gmii%d", mac_idx - 1);
 
 	ret = devm_request_irq(dev, shim->mac_cfg[mac_idx].mac_irq,
-			       hfifo_phy_interrupt_handler, IRQF_SHARED,
-			       shim->mii_irq_name[mac_idx],
-			       hcp->hfifo_priv);
+			hfifo_phy_interrupt_handler, IRQF_SHARED,
+			shim->mii_irq_name[mac_idx],
+			hcp->hfifo_priv);
 	if (ret) {
 		dev_err(dev,
-			"Failed to request IRQ %d for MAC-%d: %d\n",
-			shim->mac_cfg[mac_idx].mac_irq, mac_idx, ret);
+				"Failed to request IRQ %d for MAC-%d: %d\n",
+				shim->mac_cfg[mac_idx].mac_irq, mac_idx, ret);
 		return ret;
 	}
 
 	dev_info(dev, "Registered IRQ %d (%s) for MAC-%u\n",
-		 shim->mac_cfg[mac_idx].mac_irq,
-		 shim->mii_irq_name[mac_idx], mac_idx);
+			shim->mac_cfg[mac_idx].mac_irq,
+			shim->mii_irq_name[mac_idx], mac_idx);
 
 	return 0;
 }
@@ -309,7 +523,7 @@ int shim_subsystem_init(struct hcp_device *hcp)
 {
 	struct shim_mem_admin *shim = &shim_admin;
 	struct device *dev = hcp->dev;
-	struct hfifo_priv *hpriv;
+	struct hfifo_priv *hpriv = hcp->hfifo_priv;
 	u32 phy_mask = 0;
 	int ret;
 
@@ -330,6 +544,12 @@ int shim_subsystem_init(struct hcp_device *hcp)
 		return ret;
 	}
 
+	if (!shim->mac_cfg[hpriv->mac_idx].enabled) {
+		dev_err(dev, "HOST FIFO MAC-%d not enabled\n", hpriv->mac_idx);
+		ret = -EINVAL;
+		goto init_failed;
+	}
+
 	/* Store platform device reference */
 	shim->pdev = hcp->pdev;
 
@@ -347,13 +567,20 @@ int shim_subsystem_init(struct hcp_device *hcp)
 		goto init_failed;
 	}
 
-	hpriv = hcp->hfifo_priv;
-	if (!shim->mac_cfg[hpriv->mac_idx].enabled) {
-		dev_err(dev, "HOST FIFO MAC-%d not enabled\n", hpriv->mac_idx);
-		ret = -EINVAL;
-		goto init_failed;
-	}
 	port_set_hfifo_mode(dev, hpriv->mac_idx);
+
+	/* Register the MDIO bus so phylib can manage the external PHYs and
+	 * the Host FIFO netdev can phy_connect() to the selected MAC's PHY.
+	 */
+	if (phy_mask) {
+		ret = shim_register_mdio_bus(hcp, shim, phy_mask);
+		if (ret)
+			goto init_failed;
+	} else {
+		dev_info(dev,
+			 "No external PHYs detected, skipping MDIO bus registration\n");
+	}
+
 	shim->mac_cfg[hpriv->mac_idx].mac_irq =
 		hcp->mac_irqs[hpriv->mac_idx];
 
@@ -397,6 +624,9 @@ void shim_subsystem_exit(struct hcp_device *hcp)
 	 * to ensure no handlers are running.
 	 */
 	shim_mac_disable_all_irq();
+
+	if (shim->mii)
+		mdiobus_unregister(shim->mii);
 
 	shim->init_done = false;
 
@@ -595,58 +825,60 @@ void hfifo_reset_rx(u8 mac_idx)
 EXPORT_SYMBOL_GPL(hfifo_reset_rx);
 
 /**
- * hfifo_rx_pkt_len - Check and get the available packet length
+ * hfifo_rx_pkt_frmlen - Check and get the available packet frame length
  * @mac_idx:  mac index
- * @Return: 0 on no packet, < 0 on buff overflow, > 0 - curr packet len
+ * @mod: pointer to store MOD bits
+ * @fifo_rst: pointer to decide fifo reset to be done
+ * @Return: 0 on no packet, > 0 - curr packet frame length
  */
-int hfifo_rx_pkt_len(u8 mac_idx)
+u32 hfifo_rx_pkt_frmlen(u8 mac_idx, u32 *mod, u32 *fifo_rst)
 {
 	void __iomem *base = shim_get_virt_base_addr();
-	u32 val, len, mod;
-	int ret = -1;
+	u32 val, frmlen;
 
+	frmlen = 0;
 	val = ioread32(base + RX_PACKET_FIFO_0);
-	if (likely(val & BIT(RX_FIFO_DAV))) {
+	*fifo_rst = val & (BIT(RX_FIFO_OVF) | BIT(RX_FIFO_OVF_MON) |
+			   BIT(RX_FIFO_FULL));
+	if (val & BIT(RX_FIFO_DAV)) {
 		val = ioread32(base + RX_PACKET_FIFO_1);
-		if (val) {
-			len = (val >> RX_FIFO_FRMLEN) & GENMASK(15, 0);
-			mod = (val >> RX_FIFO_MOD) & GENMASK(1, 0);
-			ret = len * 4 - ((4 - mod) % 4);
+		if (!val) {
+			*fifo_rst = 1;
+		} else {
+			frmlen = (val >> RX_FIFO_FRMLEN) & GENMASK(15, 0);
+			*mod = (val >> RX_FIFO_MOD) & GENMASK(1, 0);
 		}
-	} else {
-		if (val & (BIT(RX_FIFO_OVF) | BIT(RX_FIFO_OVF_MON) |
-			   BIT(RX_FIFO_FULL)))
-			ret = -1;
-		else
-			ret = 0;
 	}
 
-	return ret;
+	return frmlen;
 }
-EXPORT_SYMBOL_GPL(hfifo_rx_pkt_len);
+EXPORT_SYMBOL_GPL(hfifo_rx_pkt_frmlen);
 
 /**
  * hfifo_packet_rx - Dequeue a single packet from FIFO
  * @buf: buffer to store the dequeued data
- * @buf_len:  length of data buffer
+ * @frmlen:  frame length of data buffer
  * @mac_idx:  mac index
- * @Return: buffere length dequeued
+ * @Return: frame status of current frame
  */
-int hfifo_packet_rx(u8 *buf, u32 buf_len, u8 mac_idx)
+u32 hfifo_packet_rx(u8 *buf, u32 frmlen, u8 mac_idx)
 {
 	void __iomem *base = shim_get_virt_base_addr();
 	void __iomem *rdata = base + RX_PACKET_FIFO_RDATA;
-	u32 nwords = DIV_ROUND_UP(buf_len, 4);
-	u32 i;
+	u32 frmstat;
 
-	for (i = 0; i < nwords; i++, buf += 4)
-		put_unaligned(ioread32(rdata), (u32 *)buf);
+	/* The RX data FIFO is drained by repeatedly reading the same location;
+	 * the FIFO pointer auto-advances on each read. ioread32_rep() issues
+	 * exactly that burst of same-address reads into the buffer
+	 */
+	ioread32_rep(rdata, buf, frmlen);
 
-	/* dummy read RX_FIFO_FRMSTAT for MAC RX Frame Status */
-	ioread32(base + RX_PACKET_FIFO_2);
+	/* read RX_FIFO_FRMSTAT for MAC RX Frame Status */
+	frmstat = ioread32(base + RX_PACKET_FIFO_2);
+
 	/* advance FIFO to next start-of-packet */
 	iowrite32(BIT(RX_FIFO_EOP), base + RX_PACKET_FIFO_1);
 
-	return buf_len;
+	return frmstat;
 }
 EXPORT_SYMBOL_GPL(hfifo_packet_rx);

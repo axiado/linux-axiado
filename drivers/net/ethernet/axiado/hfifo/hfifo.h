@@ -30,8 +30,12 @@ struct hfifo_data {
 	/* hfifo selected MAC */
 	u8 mac_idx;
 
+	/* last link state */
+	bool link;
+
 	/* interface stats */
 	struct rtnl_link_stats64 stats64;
 };
 
+/* MAC helpers used by the Host FIFO netdev are declared in shim_common.h */
 #endif /* _AXIADO_HFIFO_H_ */
