@@ -11,6 +11,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
+#include <linux/math.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
@@ -125,6 +126,17 @@
 #define CDNS_I2C_DIVA_MAX	4
 #define CDNS_I2C_DIVB_MAX	64
 
+#define CDNS_I2C_CLK_DIV_FACTOR		22
+
+/*
+ * Minimum number of internal reference-clock cycles the slave state
+ * machine needs within the SCL high period to reliably sample it, for
+ * a FIFO-equipped controller.
+ */
+#define CDNS_I2C_SLAVE_FIFO_CYCLES	7
+#define CDNS_I2C_STANDARD_MODE_THIGH_NS	4000
+#define CDNS_I2C_FAST_MODE_THIGH_NS	600
+
 #define CDNS_I2C_TIMEOUT_MAX	0xFF
 
 #define CDNS_I2C_BROKEN_HOLD_BIT	BIT(0)
@@ -185,7 +197,8 @@ enum cdns_i2c_slave_state {
  * @quirks:		flag for broken hold bit usage in r1p10
  * @ctrl_reg:		Cached value of the control register.
  * @rinfo:		I2C GPIO recovery information
- * @ctrl_reg_diva_divb: value of fields DIV_A and DIV_B from CR register
+ * @ctrl_reg_diva_divb: value of fields DIV_A and DIV_B from CR register for master mode
+ * @slave_ctrl_reg_diva_divb: value of fields DIV_A and DIV_B from CR register for slave mode
  * @slave:		Registered slave instance.
  * @dev_mode:		I2C operating role(master/slave).
  * @slave_state:	I2C Slave state(idle/read/write).
@@ -217,6 +230,7 @@ struct cdns_i2c {
 	struct i2c_bus_recovery_info rinfo;
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	u16 ctrl_reg_diva_divb;
+	u16 slave_ctrl_reg_diva_divb;
 	struct i2c_client *slave;
 	enum cdns_i2c_mode dev_mode;
 	enum cdns_i2c_slave_state slave_state;
@@ -367,7 +381,7 @@ static void cdns_i2c_set_mode(enum cdns_i2c_mode mode, struct cdns_i2c *id)
 		break;
 	case CDNS_I2C_MODE_SLAVE:
 		/* Enable i2c slave */
-		cdns_i2c_writereg(id->ctrl_reg_diva_divb &
+		cdns_i2c_writereg(id->slave_ctrl_reg_diva_divb &
 				  CDNS_I2C_CR_SLAVE_EN_MASK,
 				  CDNS_I2C_CR_OFFSET);
 
@@ -1291,7 +1305,7 @@ static int cdns_i2c_calc_divs(unsigned long *f, unsigned long input_clk,
 	unsigned int last_error, current_error;
 
 	/* calculate (divisor_a+1) x (divisor_b+1) */
-	temp = input_clk / (22 * fscl);
+	temp = input_clk / (CDNS_I2C_CLK_DIV_FACTOR * fscl);
 
 	/*
 	 * If the calculated value is negative or 0, the fscl input is out of
@@ -1302,13 +1316,15 @@ static int cdns_i2c_calc_divs(unsigned long *f, unsigned long input_clk,
 
 	last_error = -1;
 	for (div_a = 0; div_a < CDNS_I2C_DIVA_MAX; div_a++) {
-		div_b = DIV_ROUND_UP(input_clk, 22 * fscl * (div_a + 1));
+		div_b = DIV_ROUND_UP(input_clk,
+				      CDNS_I2C_CLK_DIV_FACTOR * fscl * (div_a + 1));
 
 		if ((div_b < 1) || (div_b > CDNS_I2C_DIVB_MAX))
 			continue;
 		div_b--;
 
-		actual_fscl = input_clk / (22 * (div_a + 1) * (div_b + 1));
+		actual_fscl = input_clk /
+			      (CDNS_I2C_CLK_DIV_FACTOR * (div_a + 1) * (div_b + 1));
 
 		if (actual_fscl > fscl)
 			continue;
@@ -1329,6 +1345,99 @@ static int cdns_i2c_calc_divs(unsigned long *f, unsigned long input_clk,
 
 	return 0;
 }
+
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
+/**
+ * cdns_i2c_calc_divs_min - Calculate dividers for a minimum clock rate
+ * @f:		Minimum required clock frequency as input, actually achieved
+ *		clock frequency as output
+ * @input_clk:	I2C clock input frequency in Hz
+ * @a:		First divider (return value)
+ * @b:		Second divider (return value)
+ *
+ * Unlike cdns_i2c_calc_divs(), which selects the highest clock not
+ * exceeding @f, this function selects the lowest achievable clock
+ * greater than or equal to @f.
+ *
+ * Return: 0 on success, negative errno otherwise.
+ */
+static int cdns_i2c_calc_divs_min(unsigned long *f, unsigned long input_clk,
+				   unsigned int *a, unsigned int *b)
+{
+	unsigned long target_fscl = *f;
+	unsigned long best_fscl = 0;
+	unsigned long actual_fscl;
+	unsigned int calc_div_a = 0;
+	unsigned int calc_div_b = 0;
+	unsigned int div_a;
+	unsigned int div_b;
+
+	for (div_a = 0; div_a < CDNS_I2C_DIVA_MAX; div_a++) {
+		for (div_b = 0; div_b < CDNS_I2C_DIVB_MAX; div_b++) {
+			actual_fscl = input_clk /
+				      (CDNS_I2C_CLK_DIV_FACTOR *
+				       (div_a + 1) * (div_b + 1));
+
+			if (actual_fscl < target_fscl)
+				continue;
+
+			if (!best_fscl || actual_fscl < best_fscl) {
+				best_fscl = actual_fscl;
+				calc_div_a = div_a;
+				calc_div_b = div_b;
+			}
+		}
+	}
+
+	if (!best_fscl)
+		return -EINVAL;
+
+	*a = calc_div_a;
+	*b = calc_div_b;
+	*f = best_fscl;
+
+	return 0;
+}
+
+/**
+ * cdns_i2c_get_slave_fscl - Calculate the minimum slave-mode timing clock
+ * @id:		Pointer to the I2C device structure
+ *
+ * Per the hardware data sheet, when operating as a slave the controller's
+ * serial clock must run faster than the configured bus rate so it can
+ * reliably sample the narrowest expected SCL high period. For a
+ * FIFO-equipped controller this requirement is relaxed to needing
+ * %CDNS_I2C_SLAVE_FIFO_CYCLES internal reference-clock cycles within
+ * that period.
+ *
+ * Return: Minimum clock frequency required by slave mode, in Hz.
+ */
+static unsigned long cdns_i2c_get_slave_fscl(struct cdns_i2c *id)
+{
+	unsigned long t_high_ns;
+	unsigned long fscl;
+
+	if (id->i2c_clk <= I2C_MAX_STANDARD_MODE_FREQ)
+		t_high_ns = CDNS_I2C_STANDARD_MODE_THIGH_NS;
+	else
+		t_high_ns = CDNS_I2C_FAST_MODE_THIGH_NS;
+
+	/*
+	 * Fscl >= cycles / (CDNS_I2C_CLK_DIV_FACTOR * tHIGH).
+	 *
+	 * Use 1,000,000,000 ns/sec explicitly here so the calculation is
+	 * performed entirely in integer Hz.
+	 */
+	fscl = DIV_ROUND_UP_ULL((u64)CDNS_I2C_SLAVE_FIFO_CYCLES * 1000000000ULL,
+				 CDNS_I2C_CLK_DIV_FACTOR * t_high_ns);
+
+	/*
+	 * Do not program slave mode slower than the configured bus rate.
+	 * This preserves the existing behavior for Standard-mode.
+	 */
+	return max_t(unsigned long, id->i2c_clk, fscl);
+}
+#endif
 
 /**
  * cdns_i2c_setclk - This function sets the serial clock rate for the I2C device
@@ -1352,21 +1461,51 @@ static int cdns_i2c_setclk(unsigned long clk_in, struct cdns_i2c *id)
 	unsigned int ctrl_reg;
 	int ret = 0;
 	unsigned long fscl = id->i2c_clk;
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
+	unsigned long slave_fscl;
+	unsigned int slave_div_a, slave_div_b;
+#endif
 
 	ret = cdns_i2c_calc_divs(&fscl, clk_in, &div_a, &div_b);
 	if (ret)
 		return ret;
+
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
+	/*
+	 * Slave timing has a minimum frequency requirement, unlike master
+	 * mode where the requested bus frequency is a maximum.
+	 */
+	slave_fscl = cdns_i2c_get_slave_fscl(id);
+	ret = cdns_i2c_calc_divs_min(&slave_fscl, clk_in, &slave_div_a, &slave_div_b);
+	if (ret)
+		return ret;
+#endif
 
 	ctrl_reg = id->ctrl_reg;
 	ctrl_reg &= ~(CDNS_I2C_CR_DIVA_MASK | CDNS_I2C_CR_DIVB_MASK);
 	ctrl_reg |= ((div_a << CDNS_I2C_CR_DIVA_SHIFT) |
 			(div_b << CDNS_I2C_CR_DIVB_SHIFT));
 	id->ctrl_reg = ctrl_reg;
-	cdns_i2c_writereg(ctrl_reg, CDNS_I2C_CR_OFFSET);
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	id->ctrl_reg_diva_divb = ctrl_reg & (CDNS_I2C_CR_DIVA_MASK |
 				 CDNS_I2C_CR_DIVB_MASK);
+	id->slave_ctrl_reg_diva_divb = (slave_div_a << CDNS_I2C_CR_DIVA_SHIFT) |
+					(slave_div_b << CDNS_I2C_CR_DIVB_SHIFT);
+
+	/*
+	 * A clock notifier may call this function while the controller is
+	 * operating as a slave. Preserve the current operating mode and
+	 * only replace the divider fields, so a live slave session keeps
+	 * using the slave-appropriate divider rather than the master one.
+	 */
+	if (id->dev_mode == CDNS_I2C_MODE_SLAVE) {
+		ctrl_reg = cdns_i2c_readreg(CDNS_I2C_CR_OFFSET);
+		ctrl_reg &= ~(CDNS_I2C_CR_DIVA_MASK | CDNS_I2C_CR_DIVB_MASK);
+		ctrl_reg |= id->slave_ctrl_reg_diva_divb;
+	}
 #endif
+	cdns_i2c_writereg(ctrl_reg, CDNS_I2C_CR_OFFSET);
+
 	return 0;
 }
 
@@ -1409,6 +1548,16 @@ static int cdns_i2c_clk_notifier_cb(struct notifier_block *nb, unsigned long
 					"clock rate change rejected\n");
 			return NOTIFY_STOP;
 		}
+
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
+		fscl = cdns_i2c_get_slave_fscl(id);
+		ret = cdns_i2c_calc_divs_min(&fscl, input_clk, &div_a, &div_b);
+		if (ret) {
+			dev_warn(id->adap.dev.parent,
+					"clock rate change rejected: cannot satisfy slave timing\n");
+			return NOTIFY_STOP;
+		}
+#endif
 
 		/* scale up */
 		if (ndata->new_rate > ndata->old_rate)
