@@ -1356,6 +1356,42 @@
 			status = "disabled";
 		};
 
+		tsadc0: temperature-sensor@33021000 {
+			compatible = "axiado,ax3005-tsadc", "axiado,ax3000-tsadc";
+			reg = <0x0 0x33021000 0x0 0x100>;
+			clocks = <&refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 182 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		tsadc1: temperature-sensor@33120C00 {
+			compatible = "axiado,ax3005-tsadc", "axiado,ax3000-tsadc";
+			reg = <0x0 0x33120C00 0x0 0x100>;
+			clocks = <&refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 181 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		tsadc2: temperature-sensor@33202800 {
+			compatible = "axiado,ax3005-tsadc", "axiado,ax3000-tsadc";
+			reg = <0x0 0x33202800 0x0 0x100>;
+			clocks = <&refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 180 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		tsadc3: temperature-sensor@33302400 {
+			compatible = "axiado,ax3005-tsadc", "axiado,ax3000-tsadc";
+			reg = <0x0 0x33302400 0x0 0x100>;
+			clocks = <&refclk>;
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 179 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
 		uart0: serial@33020000 {
 			compatible = "axiado,ax3000-uart", "cdns,uart-r1p12";
 			reg = <0x0 0x33020000 0x0 0x100>;
