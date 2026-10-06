@@ -1496,7 +1496,7 @@
 
 		video: video {
 			compatible = "axiado,ax3000-video";
-			memory-region = <&pci_ep_disp>;
+			memory-region = <&pci_ep_disp>, <&pci_ep_ctrl>;
 			axiado,lcdc = <&disp_ctrl>;
 		};
 	};
