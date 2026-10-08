@@ -7,20 +7,40 @@ config PCIE_PLDA_HOST
 	bool
 	select IRQ_MSI_LIB
 
+config PCIE_AXIADO_EP_MODE
+	bool
+	depends on ARCH_AXIADO && (OF || COMPILE_TEST)
+
 config PCIE_AXIADO_END_POINT
-	bool "Axiado PCIe end point Controller"
+	bool "Axiado PCIe end point Controller (legacy)"
 	depends on PCI_MSI
 	depends on PCI
 	depends on ARCH_AXIADO && (OF || COMPILE_TEST)
+	depends on !PCIE_AXIADO_EPC
 	select PCI_HOST_COMMON
 	select PCIE_PLDA_HOST
+	select PCIE_AXIADO_EP_MODE
 	help
-	  Say Y if you want PCIe End-point Support on Axiado SoCs.
-	  PCIe End-Point mode are supported by enabling
-	  this config.
-	  This driver configures the PLDA-based PCIe controller to operate
-	  as an endpoint device allowing the SoC to appear as a PCIe device
-	  to an external host system.
+	  Say Y if you want PCIe End-point Support on Axiado SoCs
+	  using the legacy host-bridge based endpoint driver.
+
+config PCIE_AXIADO_EPC
+	bool "Axiado PCIe Endpoint Controller (EPC framework)"
+	depends on PCI
+	depends on PCI_ENDPOINT
+	depends on ARCH_AXIADO && (OF || COMPILE_TEST)
+	select PCIE_AXIADO_EP_MODE
+	help
+	  Say Y here to enable the PCIe Endpoint Controller (EPC) driver
+	  for Axiado AX3000 and AX3005 SoCs.  The driver integrates the
+	  PLDA XpressRich PCIe IP in endpoint mode with the Linux pci_epc
+	  framework, providing standard BAR configuration, MSI interrupt
+	  generation, and PCIe-to-AXI address translation.
+
+	  This is the preferred endpoint driver; the legacy
+	  PCIE_AXIADO_END_POINT option is deprecated.
+
+	  If unsure, say N.
 
 config PCIE_MICROCHIP_HOST
 	tristate "Microchip AXI PCIe controller"
