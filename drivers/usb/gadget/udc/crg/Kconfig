@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0
+config USB_CRG_UDC
+	tristate "Corigine / Axiado USB Device Controller"
+	depends on USB_GADGET
+	depends on HAS_DMA
+	depends on ARCH_AXIADO || COMPILE_TEST
+	help
+	  Say Y here to support the USB device controller found on Axiado AX3000
+	  and AX3005 SoCs, which is based on the Corigine USB 3.1 IP.
+
+	  This controller supports High-Speed and SuperSpeed.
+
+	  Say "y" to link the driver statically, or "m" to build a
+	  dynamically linked module called "crg-udc.ko".
+
+	  If unsure, say N.
