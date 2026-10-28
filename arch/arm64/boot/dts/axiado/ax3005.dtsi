@@ -262,6 +262,26 @@
 			status = "disabled";
 		};
 
+		espi0: espi@330d0000 {
+			compatible = "axiado,ax3000-espi";
+			reg = <0x0 0x330d0000 0x0 0x1000>,     /* eSPI IP registers (4KB) */
+				<0x0 0x330d1000 0x0 0x1000>,     /* External logic registers (4KB) */
+				<0x0 0x330d2000 0x0 0x1000>;  /* Section B: Peripheral registers */
+			reg-names = "espi-core", "espi-perif", "espi-atu";
+			interrupt-parent = <&gic500>;
+			interrupts = <GIC_SPI 266 IRQ_TYPE_LEVEL_HIGH>,   /* eSPI IP IRQ */
+					<GIC_SPI 134 IRQ_TYPE_LEVEL_HIGH>;   /* External logic IRQ */
+			interrupt-names = "espi-core-intr", "ext-atu-intr";
+
+			/* ADDED: Interrupt controller properties for regmap IRQ chip */
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0x0 0x0 0x330d0000 0x3000>;
+			status = "disabled";
+		};
+
 		fan0: pwm-fan0@33001400 {
 			compatible = "axiado,ax3000-pwm-fan";
 			interrupt-parent = <&gic500>;
