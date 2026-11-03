@@ -280,6 +280,16 @@
 			#size-cells = <1>;
 			ranges = <0x0 0x0 0x330d0000 0x3000>;
 			status = "disabled";
+
+			espi_snoop: espi-snoop@330d10c0 {
+				compatible = "axiado,ax3000-espi-snoop";
+				reg = <0x330d10c0 0x10>;
+				interrupt-parent = <&espi0>;
+				interrupts = <13>;
+				io-addr = <0x80>;
+				addr-size = <0x4>;
+				status = "disabled";
+			};
 		};
 
 		fan0: pwm-fan0@33001400 {
