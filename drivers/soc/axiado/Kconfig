@@ -45,4 +45,17 @@ config AXIADO_ESPI
 
 	  The driver supports direct MMIO mode based on the device tree compatible string.
 
+config AXIADO_ESPI_SNOOP
+	tristate "AXIADO ESPI SNOOP support"
+	depends on AXIADO_ESPI
+	select REGMAP
+	help
+	  This driver provides support for the Axiado eSPI Snoop interface
+	  which captures POST codes (Port 80 data) sent by the host via eSPI.
+
+	  It exposes a character device (/dev/axiado-espi-snoop) for user
+	  space tools such as snoopd to monitor POST code updates.
+
+	  If unsure, say N.
+
 endmenu
