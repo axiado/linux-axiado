@@ -93,6 +93,17 @@
 			compatible = "linaro,optee-tz";
 			method = "smc";
 		};
+		/*
+		 * MCTP over the IRoT mailbox. The co-processor owns the
+		 * windows and reports them, and the MTU, at runtime.
+		 */
+		mctp_irot:mctp-irot {
+			compatible = "axiado,ax3005-mctp-irot";
+			mboxes = <&mailbox0 0>, /* TX channel */
+				 <&mailbox0 8>; /* RX channel */
+			mbox-names = "tx", "rx";
+			memory-region = <&irot_mctp_mem>;
+		};
 	};
 
 	reserved-memory {
@@ -116,16 +127,6 @@
 			reg = <0x00 0x80B00000 0x00 0x06400000>; /*MTD 100MB*/
 			no-map;
 		};
-		shm_ap_to_rot: shm_ap_to_rot@87700000 {
-			/* TX shmem: app-processor writes, ROT reads; */
-			reg = <0x00 0x87700000 0x00 0x200000>; /* 2MB */
-			no-map;
-		};
-		shm_rot_to_ap: shm_rot_to_ap@87900000 {
-			/* RX shmem: ROT writes, app-processor reads; */
-			reg = <0x00 0x87900000 0x00 0x200000>; /* 2MB */
-			no-map;
-		};
 		rot_fwu: rot_fwu@91800000 {
 			/* Reserved for ROT FWU scratch; ROT accesses directly, not used by Linux */
 			reg = <0x00 0x91800000 0x00 0x4400000>; /* R52 FWU scratch 68MB */
@@ -134,6 +135,11 @@
 		secure_ddr: secure_ddr@88300000 {
 			/* TZ_RAM: TF-A BL31 + OP-TEE OS + TA space + SHMEM (16 MB) */
 			reg = <0x0 0x88300000 0x0 0x01000000>;
+			no-map;
+		};
+		irot_mctp_mem: irot-mctp@87700000 {
+			/* IRoT MCTP windows, 2 x 2 MB */
+			reg = <0x0 0x87700000 0x0 0x400000>; /* 4 MB */
 			no-map;
 		};
 	};
@@ -207,23 +213,6 @@
 		regulator-min-microvolt = <1100000>;
 		regulator-max-microvolt = <1100000>;
 		regulator-always-on;
-	};
-
-	/*
-	 * MCTP over the iROT mailbox. "compatible" picks the variant:
-	 *   "axiado,ax3005-mctp-irot" (default): A53 owns windows,
-	 *     "memory-region" mandatory, MTU is the smaller of the two windows.
-	 *   "axiado,ax3005-mctp-irot-v2": coprocessor owns windows,
-	 *     "memory-region" optional, MTU from firmware.
-	 */
-
-	mctp_irot: mctp-irot {
-		compatible = "axiado,ax3005-mctp-irot";
-		memory-region = <&shm_ap_to_rot>, <&shm_rot_to_ap>;
-		mboxes = <&mailbox0 0>, /* TX channel */
-			 <&mailbox0 8>; /* RX channel */
-		mbox-names = "tx", "rx";
-		status = "okay";
 	};
 
 	soc {

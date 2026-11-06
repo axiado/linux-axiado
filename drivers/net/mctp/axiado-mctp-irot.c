@@ -1,293 +1,216 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2026 Axiado Corporation. All rights reserved.
+ * Axiado AX3005 IRoT MCTP transport driver
  *
- * Axiado AX3005 IRoT MCTP Transport Driver
- *
+ * Copyright (c) 2026 Axiado Corporation.
  */
 
-#include <linux/atomic.h>
+#include <linux/bottom_half.h>
 #include <linux/build_bug.h>
 #include <linux/cleanup.h>
+#include <linux/completion.h>
+#include <linux/device.h>
+#include <linux/err.h>
 #include <linux/errno.h>
 #include <linux/if_arp.h>
 #include <linux/if_ether.h>
 #include <linux/io.h>
+#include <linux/ioport.h>
 #include <linux/jiffies.h>
-#include <linux/kthread.h>
 #include <linux/mailbox_client.h>
 #include <linux/minmax.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/netdevice.h>
-#include <linux/of.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/platform_device.h>
-#include <linux/semaphore.h>
 #include <linux/skbuff.h>
-#include <linux/slab.h>
 #include <linux/spinlock.h>
+#include <linux/string.h>
 #include <linux/types.h>
-#include <linux/wait.h>
 #include <linux/wordpart.h>
+#include <linux/workqueue.h>
 #include <net/mctp.h>
 #include <net/mctpdevice.h>
 
-/* Every field on the wire is a little-endian 32-bit word. */
-typedef __le32 irot_u32;
-
 /*
- * Command codes. Even == request, odd == response. Zero is reserved as
- * "empty"/none and is never sent on the wire.
+ * Command codes. Even == request, odd == response. Zero is reserved and is
+ * never sent on the wire.
  */
 enum irot_command_code {
-	irot_cc_ping			= 2,
-	irot_cc_ping_rsp		= 3,
-	irot_cc_get_mctp_buffers	= 4,
-	irot_cc_mctp_buffer		= 5,
-	irot_cc_mctp			= 6,
-	irot_cc_mctp_done		= 7,
+	IROT_CC_PING			= 2,
+	IROT_CC_PING_RSP		= 3,
+	IROT_CC_GET_MCTP_BUFFERS	= 4,
+	IROT_CC_MCTP_BUFFER		= 5,
+	IROT_CC_MCTP			= 6,
+	IROT_CC_MCTP_DONE		= 7,
 };
 
-/* 64-bit physical address split into two u32 to avoid alignment/padding. */
+/* 64-bit physical address split into two words to avoid padding. */
 struct irot_msg_address {
-	irot_u32 low;
-	irot_u32 high;
+	__le32 low;
+	__le32 high;
 };
 
 struct irot_msg_span {
 	struct irot_msg_address address;
-	irot_u32 size;
+	__le32 size;
 };
 
 struct irot_msg_data_buffers {
-	irot_u32 mtu_limit;
-	struct irot_msg_span host_read;	 /* BMC reads RX packets from here */
-	struct irot_msg_span host_write; /* BMC writes TX packets into here */
+	__le32 mtu_limit;
+	struct irot_msg_span host_read;	 /* host reads RX packets here */
+	struct irot_msg_span host_write; /* host writes TX packets here */
 };
 
 struct irot_msg_data_mctp {
-	irot_u32 counter;		/* echoed back in the ACK */
-	struct irot_msg_span packet;	/* must lie inside the matching region */
+	__le32 counter;			/* echoed back in the ACK */
+	struct irot_msg_span packet;	/* must lie inside its window */
 };
 
 union irot_msg_data {
-	irot_u32 args[7];
-	irot_u32 value;				/* ping echo / mctp_done counter */
+	__le32 value;			/* ping echo / mctp_done counter */
 	struct irot_msg_data_buffers buffers;
 	struct irot_msg_data_mctp mctp;
 };
 
 struct irot_msg {
-	irot_u32 command;
+	__le32 command;
 	union irot_msg_data data;
 };
 
-#define IROT_MSG_INIT { .command = 0, .data = { .args = { 0 } } }
-
-/* The mailbox transfers exactly 32 bytes per message. */
 static_assert(sizeof(struct irot_msg) == 32);
 
-#define IROT_COMPATIBLE_STATIC		"axiado,ax3005-mctp-irot"
-#define IROT_COMPATIBLE_NEGOTIATED	"axiado,ax3005-mctp-irot-v2"
-#define IROT_DRIVER_NAME		"ax3005-mctp-irot"
-#define IROT_DRIVER_DESC		"Axiado MCTP transport driver"
-
 /*
- * Each slot carries exactly 32 bytes of irot_msg,
- * wrapped in a 16-byte controller header (48-byte FIFO frame).
+ * One mailbox FIFO frame. @len is the Axiado mailbox controller's length
+ * word: the total frame size in bytes, including itself. The controller
+ * interprets nothing else. @type, @priority and @flag are defined by the
+ * IRoT firmware: the host sends them as zero and ignores them on receive.
+ * The 32-byte IRoT message follows.
  */
-#define IROT_MBOX_CHAN_TX		"tx"
-#define IROT_MBOX_CHAN_RX		"rx"
-#define IROT_MBOX_PAYLOAD_BYTES		32
-#define IROT_MBOX_TX_TOUT_MS		250
-
-#define IROT_NETDEV_NAME		"mctpirot%d"
-
-/*
- * IROT_MCTP_MAX_MTU bounds only the negotiated mode, where the firmware
- * reports an mtu_limit of its own and nothing else bounds the answer. In
- * DT-declared mode a window holds exactly one packet, so the MTU is the
- * smaller of the two windows.
- */
-#define IROT_TX_QUEUE_SIZE		20
-#define IROT_BUFFER_RETRIES		3
-#define IROT_BUFFER_TIMEOUT_S		5
-#define IROT_MCTP_MIN_MTU		68
-#define IROT_MCTP_MAX_MTU		65536
-
-/*
- * RX rings, both drained by the RX kthread:
- *   IROT_RX_RING_SIZE     inbound packets awaiting delivery
- *   IROT_RX_ACK_RING_SIZE counters whose payload was dropped or duplicated but
- *                         which still owe the peer a cc_mctp_done
- */
-#define IROT_RX_RING_SIZE		8
-#define IROT_RX_ACK_RING_SIZE		8
-#define IROT_TX_ACK_TIMEOUT_MS		5000
-
-static_assert(sizeof(struct irot_msg) <= IROT_MBOX_PAYLOAD_BYTES,
-	      "one IPC message must fit in IROT_MBOX_PAYLOAD_BYTES (32)");
-
-static_assert(IROT_TX_QUEUE_SIZE >= 1, "TX queue must hold >= 1 skb");
-static_assert(IROT_MCTP_MIN_MTU >= 68, "MCTP MTU floor is 68");
-static_assert(IROT_MCTP_MAX_MTU >= IROT_MCTP_MIN_MTU,
-	      "MTU ceiling must not be below the floor");
-static_assert(IROT_RX_RING_SIZE >= 1 && IROT_RX_ACK_RING_SIZE >= 1,
-	      "RX rings must hold >= 1 entry");
-static_assert(IROT_TX_ACK_TIMEOUT_MS >= IROT_MBOX_TX_TOUT_MS,
-	      "ACK timeout must outlast the mailbox send timeout");
-static_assert(sizeof(IROT_COMPATIBLE_STATIC) > 1,
-	      "set a real compatible string");
-
-/*
- * Mailbox FIFO frame defined by the firmware ABI: a 16-byte controller header
- * followed by the 32-byte iROT message. The controller is length-prefixed --
- * it transmits @len bytes and delivers the whole frame to the RX callback.
- */
-#define IROT_MBOX_FW_HDR_SIZE	16
-
 struct irot_mbox_frame {
-	__le32 len;		/* total bytes, always 48 (0x30) */
-	__le32 type;		/* 0 */
-	__le32 priority;	/* 0 */
-	__le32 flag;		/* 0 */
+	__le32 len;
+	__le32 type;
+	__le32 priority;
+	__le32 flag;
 	struct irot_msg irot;
-} __packed;
+};
 
-static_assert(sizeof(struct irot_mbox_frame) ==
-	      IROT_MBOX_FW_HDR_SIZE + sizeof(struct irot_msg),
+static_assert(sizeof(struct irot_mbox_frame) == 16 + sizeof(struct irot_msg),
 	      "irot_mbox_frame must be header + one IPC message");
 static_assert(sizeof(struct irot_mbox_frame) == 48,
 	      "irot_mbox_frame must be exactly 48 bytes");
 
-/**
- * struct irot_variant - the only per-peer differences in this driver
- * @desc:              human-readable name, for the probe banner
- * @negotiate_buffers: run the cc_get_mctp_buffers handshake and take the
- *                     window addresses from the reply. When false the windows
- *                     come from the DT memory-region phandles, which are then
- *                     mandatory.
- * @peer_retransmits:  the peer resends a packet it never saw acknowledged.
- *                     This single fact drives the whole RX drop policy:
- *                       true  - withhold the ACK for anything undeliverable
- *                               and let it come back; dedup by counter so the
- *                               retransmit is not delivered twice; a full RX
- *                               ring is ordinary backpressure.
- *                       false - answer every counter even when the payload is
- *                               dropped, because nothing will come back; and
- *                               running out of room to record that obligation
- *                               is fatal to the link.
- * @first_tx_counter:  initial value of the rolling TX sequence number.
- */
-struct irot_variant {
-	const char *desc;
-	bool negotiate_buffers;
-	bool peer_retransmits;
-	u32  first_tx_counter;
-};
+#define IROT_MBOX_TX_TOUT_MS		250
+#define IROT_TX_QUEUE_LEN		20
+#define IROT_TX_ACK_TIMEOUT_MS		5000
+#define IROT_BUFFER_RETRIES		3
+#define IROT_BUFFER_TIMEOUT_S		5
+/* DMTF DSP0236 section 8.3: baseline transmission unit */
+#define IROT_MCTP_MIN_MTU		68
+/* Caps the MTU and the size of one RX allocation */
+#define IROT_MCTP_MAX_MTU		2097152
 
-/*
- * A shared-memory window in host byte order. Wire spans are little-endian and
- * split across two words; convert once at the boundary and keep this in driver
- * state, so the validation and data paths do no endian juggling.
- */
+/* A shared-memory window in host byte order. */
 struct irot_region {
 	u64 base;
 	u32 size;
 };
 
-/* One inbound packet notification awaiting the RX thread. */
+/* One inbound packet notification. */
 struct irot_rx_entry {
 	u32 counter;
 	u64 base;
 	u32 size;
 };
 
-struct irot_priv;
-
-/*
- * The net_device and the driver state have independent lifetimes: the netdev is
- * freed with free_netdev(), irot_priv is devm-managed. This wrapper bridges the
- * two and lets xmit notice that the driver is going away.
- */
-struct irot_netdev_priv {
-	spinlock_t lock;	/* protects @p against concurrent teardown */
-	struct irot_priv *p;
+enum irot_rx_result {
+	IROT_RX_DELIVERED,	/* handed to the stack: ACK */
+	IROT_RX_INVALID,	/* can never be delivered: ACK and drop */
+	IROT_RX_RETRY,		/* transient failure: no ACK, peer resends */
 };
 
-/* All driver state for one IRoT MCTP endpoint. */
+/*
+ * All driver state for one IRoT MCTP endpoint; the net_device private area.
+ *
+ * Flow control: each window holds one packet, and each side waits for
+ * cc_mctp_done before it reuses its window. So at most one packet is in
+ * flight per direction, and the RX side needs a single slot. A peer that does
+ * not see its cc_mctp_done in time resends the same counter.
+ *
+ * On TX the netdev queue is the only queue: xmit hands one skb to tx_work and
+ * stops the queue, and the queue is woken once the peer has ACKed it.
+ *
+ * The mailbox callback runs in atomic context; it only records state and
+ * queues work. All sends, and all netdev access, happen on @wq.
+ */
 struct irot_priv {
 	struct device		*dev;
 	struct net_device	*ndev;
-	const struct irot_variant *var;
+	struct workqueue_struct	*wq;
 
-	/* mailbox */
 	struct mbox_client	 cl;
 	struct mbox_chan	*chan_tx;
 	struct mbox_chan	*chan_rx;
-	struct mutex		 tx_chan_lock;	/* serialises senders on chan_tx */
+	struct mutex		 tx_chan_lock;	/* serialises chan_tx senders */
 	struct irot_mbox_frame	 tx_frame;	/* owned by tx_chan_lock */
 
-	/* shared memory in use (write-once during probe) */
+	/* shared memory, written once before the netdev is registered */
 	struct irot_region	 host_write;	/* AP writes, IRoT reads */
 	struct irot_region	 host_read;	/* IRoT writes, AP reads */
-	void			*tx_addr;	/* devm_memremap(host_write) */
-	void			*rx_addr;	/* devm_memremap(host_read)  */
-	u32			 mtu_limit;	/* advertised link MTU */
-	u32			 read_mtu;	/* min(mtu_limit, host_read.size)  */
-	u32			 write_mtu;	/* min(mtu_limit, host_write.size) */
+	u32			 mtu;		/* largest packet either way */
+	bool			 buffers_valid;	/* rx_lock */
+	struct completion	 buffers_done;
+	struct resource		 pool_res;	/* memory-region carve-out */
+	void			*pool;
+	void			*tx_addr;
+	void			*rx_addr;
 
-	/* device tree */
-	struct irot_region	 dt_write;	/* memory-region index 0 */
-	struct irot_region	 dt_read;	/* memory-region index 1 */
-	bool			 have_dt_windows;
+	struct work_struct	 tx_work;	/* send tx_skb, or wake the queue */
+	struct delayed_work	 tx_timeout_work; /* cc_mctp_done overdue */
+	u32			 next_tx_counter; /* tx_work only */
 
-	/* TX path */
-	struct sk_buff_head	 tx_queue;
-	wait_queue_head_t	 tx_wq;		/* skb queued, or stall ended */
-	wait_queue_head_t	 tx_done_wq;	/* cc_mctp_done arrived */
-	struct task_struct	*tx_thread;
-
-	spinlock_t		 tx_state_lock;	/* the TX slot handshake */
+	spinlock_t		 tx_state_lock;	/* the TX fields below */
+	struct sk_buff		*tx_skb;	/* handed from xmit to tx_work */
 	bool			 pending_write;	/* window owned by a transfer */
 	bool			 tx_stalled;	/* ACK overdue, link down */
 	u32			 pending_tx_counter;
 
-	/* RX path */
-	wait_queue_head_t	 rx_wq;
-	struct task_struct	*rx_thread;
-	spinlock_t		 rx_lock;	/* RX rings and callback state */
+	/* RX path; everything below is protected by rx_lock */
+	struct work_struct	 rx_work;
+	spinlock_t		 rx_lock;	/* the RX fields below */
 
-	struct irot_rx_entry	 rx_ring[IROT_RX_RING_SIZE];
-	unsigned int		 rx_head, rx_tail, rx_count;
+	struct irot_rx_entry	 rx_entry;
+	bool			 rx_busy;	/* rx_entry not yet answered */
+	bool			 rx_new;	/* rx_entry not yet picked up */
 
-	u32			 rx_ack_ring[IROT_RX_ACK_RING_SIZE];
-	unsigned int		 rx_ack_head, rx_ack_tail, rx_ack_count;
+	bool			 dup_ack_pending;
+	u32			 dup_ack_counter;
 
-	bool			 rx_stalled;	/* ACK obligation lost */
+	bool			 ping_pending;
+	u32			 ping_value;
 
-	bool			 pending_ping;
-	u32			 pending_ping_value;
+	/* Last counter handed to the stack */
+	bool			 has_last_rx_counter;
+	u32			 last_rx_counter;
 
-	/* Dedup cursor: last counter handed to the stack (rx_lock) */
-	u32			 prev_rx_counter;
-	bool			 has_prev_rx_counter;
-
-	/* buffer negotiation (rx_lock, probe path) */
-	struct semaphore	 probe_sem;	/* count=0; up() on cc_mctp_buffer */
-	struct irot_region	 nego_write;
-	struct irot_region	 nego_read;
-	u32			 nego_mtu_limit;
-	bool			 nego_valid;
-
-	/*
-	 * Set once mctp_register_netdev() has succeeded. Until then the netdev
-	 * exists but is not registered, so the carrier and queue must be left
-	 * alone; the mailbox callback is already live by that point.
-	 */
-	bool			 netdev_live;
+	/* Drops seen by the callback, folded into the stats by rx_work */
+	unsigned int		 rx_dropped;
 };
+
+/*
+ * Statistics are updated from the work items and from xmit. Every update
+ * from process context disables BHs, so the per-CPU update cannot be
+ * interrupted by xmit running in softirq on the same CPU.
+ */
+static void irot_tx_drop(struct irot_priv *p, struct sk_buff *skb)
+{
+	local_bh_disable();
+	dev_dstats_tx_dropped(p->ndev);
+	local_bh_enable();
+	dev_kfree_skb_any(skb);
+}
 
 static void irot_region_from_span(struct irot_region *r,
 				  const struct irot_msg_span *s)
@@ -306,9 +229,8 @@ static void irot_span_from_region(struct irot_msg_span *s,
 }
 
 /*
- * Bounds-check a packet against its containing window and return its offset
- * in @off. True only if the packet lies wholly inside: no underflow, no
- * overflow, no wrap. On false the packet must be dropped.
+ * True only if [base, base + size) lies wholly inside @win, with no wrap.
+ * Returns the packet's offset into the window in @off.
  */
 static bool irot_region_offset(const struct irot_region *win, u64 base,
 			       u32 size, u64 *off)
@@ -318,39 +240,18 @@ static bool irot_region_offset(const struct irot_region *win, u64 base,
 
 	*off = base - win->base;
 
-	if (*off > win->size)
+	if (*off >= win->size)
 		return false;
 
-	/* Reject wrap and overflow: size beyond what is left in the window */
-	if (size > win->size - *off)
-		return false;
-
-	return true;
+	return size <= win->size - *off;
 }
 
 /*
- * The same containment test one level up: irot_region_offset() bounds a packet
- * inside a window, this bounds a firmware-supplied window inside the window the
- * device tree reserved for it.
- */
-static bool irot_region_contains(const struct irot_region *outer,
-				 const struct irot_region *inner)
-{
-	u64 off;
-
-	if (!inner->size)
-		return false;
-
-	return irot_region_offset(outer, inner->base, inner->size, &off);
-}
-
-/*
- * Transmit one 32-byte IPC message. The client sets tx_block, so
- * mbox_send_message() waits for the controller; the frame therefore lives in
- * driver state rather than on the caller's stack, owned by tx_chan_lock, which
- * also keeps the two kthreads from racing on the one blocking channel.
- *
- * Never call this from the RX callback: it sleeps.
+ * Transmit one IPC message. tx_block is set, so the frame lives in driver
+ * state, owned by tx_chan_lock. The mailbox core keeps one tx-done
+ * completion per channel, so blocking senders must not overlap; the lock
+ * serialises probe against the work items.
+ * Sleeps: never call this from the RX callback.
  */
 static int irot_send(struct irot_priv *p, const struct irot_msg *msg)
 {
@@ -363,40 +264,35 @@ static int irot_send(struct irot_priv *p, const struct irot_msg *msg)
 	return mbox_send_message(p->chan_tx, &p->tx_frame);
 }
 
-static int irot_send_done(struct irot_priv *p, u32 counter)
+static void irot_send_done(struct irot_priv *p, u32 counter)
 {
-	struct irot_msg ack = IROT_MSG_INIT;
+	struct irot_msg ack = {};
+	int rc;
 
-	ack.command    = cpu_to_le32(irot_cc_mctp_done);
+	ack.command    = cpu_to_le32(IROT_CC_MCTP_DONE);
 	ack.data.value = cpu_to_le32(counter);
 
-	return irot_send(p, &ack);
+	rc = irot_send(p, &ack);
+	if (rc < 0)
+		dev_warn_ratelimited(p->dev, "Failed to ACK RX counter %u: %d\n",
+				     counter, rc);
 }
 
+/*
+ * Release the window for @counter and let tx_work wake the queue. Called from
+ * the mailbox callback on cc_mctp_done, and from tx_work when a send fails.
+ */
 static void irot_tx_mark_done(struct irot_priv *p, u32 counter)
 {
-	unsigned long flags;
+	scoped_guard(spinlock_irqsave, &p->tx_state_lock) {
+		if (!p->pending_write || p->pending_tx_counter != counter)
+			return;
 
-	spin_lock_irqsave(&p->tx_state_lock, flags);
-
-	if (!p->pending_write || p->pending_tx_counter != counter) {
-		spin_unlock_irqrestore(&p->tx_state_lock, flags);
-		return;
+		p->pending_write = false;
 	}
 
-	p->pending_write = false;
-	wake_up(&p->tx_done_wq);
-
-	/*
-	 * A stalled TX kthread is parked on tx_wq with an empty queue, so it
-	 * needs this wakeup to notice that the window is free again. Not racy
-	 * against a concurrent stall: tx_stalled is set under this lock and
-	 * irot_tx_stall_ended() is evaluated before the kthread sleeps again.
-	 */
-	if (p->tx_stalled)
-		wake_up(&p->tx_wq);
-
-	spin_unlock_irqrestore(&p->tx_state_lock, flags);
+	cancel_delayed_work(&p->tx_timeout_work);
+	queue_work(p->wq, &p->tx_work);
 }
 
 static int irot_tx_mark_pending(struct irot_priv *p, u32 counter)
@@ -412,196 +308,91 @@ static int irot_tx_mark_pending(struct irot_priv *p, u32 counter)
 	return 0;
 }
 
-static bool irot_tx_idle(struct irot_priv *p)
+static bool irot_tx_ready(struct irot_priv *p)
 {
 	guard(spinlock_irqsave)(&p->tx_state_lock);
 
-	return !p->pending_write;
-}
-
-static bool irot_tx_stalled(struct irot_priv *p)
-{
-	guard(spinlock_irqsave)(&p->tx_state_lock);
-
-	return p->tx_stalled;
-}
-
-static bool irot_tx_stall_ended(struct irot_priv *p)
-{
-	guard(spinlock_irqsave)(&p->tx_state_lock);
-
-	return p->tx_stalled && !p->pending_write;
+	return !p->pending_write && !p->tx_stalled && !p->tx_skb;
 }
 
 /*
- * The peer owes us an ACK and has not sent it: take the link down and discard
- * what is queued. The write slot stays marked pending on purpose, because the
- * peer may still be reading the window and reusing it would corrupt the
- * transfer. Only a late cc_mctp_done releases it.
+ * The peer owes us an ACK and has not sent it: take the link down. The queue
+ * is already stopped, and the window stays claimed, because the peer may still
+ * be reading it; only a late cc_mctp_done releases it.
+ *
+ * There is no resync: if the IRoT resets and never answers the outstanding
+ * counter, the link stays down until the driver is rebound.
  */
-static void irot_tx_stall(struct irot_priv *p)
+static void irot_tx_stall(struct irot_priv *p, const char *why)
 {
-	unsigned long flags;
 	u32 counter;
-	u32 dropped;
 
-	spin_lock_irqsave(&p->tx_state_lock, flags);
-	p->tx_stalled = true;
-	counter = p->pending_tx_counter;
-	spin_unlock_irqrestore(&p->tx_state_lock, flags);
-
-	if (p->netdev_live) {
-		netif_carrier_off(p->ndev);
-		netif_stop_queue(p->ndev);
+	scoped_guard(spinlock_irqsave, &p->tx_state_lock) {
+		if (!p->pending_write || p->tx_stalled)
+			return;
+		p->tx_stalled = true;
+		counter = p->pending_tx_counter;
 	}
 
-	dropped = skb_queue_len(&p->tx_queue);
-	skb_queue_purge(&p->tx_queue);
+	netif_carrier_off(p->ndev);
 
-	p->ndev->stats.tx_errors++;
-	p->ndev->stats.tx_dropped += dropped;
-
-	dev_err(p->dev,
-		"no mctp_done ACK for TX counter %u within %ums, taking link down (dropped %u queued packets)\n",
-		counter, IROT_TX_ACK_TIMEOUT_MS, dropped);
+	dev_warn(p->dev, "TX counter %u: %s, taking link down\n", counter, why);
 }
 
-static void irot_tx_stall_recover(struct irot_priv *p)
+/* The window is free again: end a stall, and let the stack send. */
+static void irot_tx_wake(struct irot_priv *p)
 {
-	unsigned long flags;
 	bool recovered = false;
 
-	spin_lock_irqsave(&p->tx_state_lock, flags);
-	if (p->tx_stalled && !p->pending_write) {
-		p->tx_stalled = false;
-		recovered = true;
+	scoped_guard(spinlock_irqsave, &p->tx_state_lock) {
+		if (p->pending_write || p->tx_skb)
+			return;
+
+		if (p->tx_stalled) {
+			p->tx_stalled = false;
+			recovered = true;
+		}
+
+		/*
+		 * Wake under the lock: xmit stops the queue and hands over its
+		 * skb under it too, so the wake cannot land in between.
+		 */
+		if (netif_running(p->ndev))
+			netif_wake_queue(p->ndev);
 	}
-	spin_unlock_irqrestore(&p->tx_state_lock, flags);
 
-	if (!recovered)
-		return;
-
-	dev_info(p->dev, "TX transfer completed, link up\n");
-
-	if (p->netdev_live) {
+	if (recovered) {
+		dev_dbg(p->dev, "late TX ACK arrived, link up\n");
 		netif_carrier_on(p->ndev);
-		netif_wake_queue(p->ndev);
 	}
 }
 
-/*
- * Bounded wait for the outstanding cc_mctp_done. Returns 0 when the slot is
- * free, -ETIMEDOUT when the peer is overdue, -ENODEV when the kthread is being
- * stopped.
- */
-static int irot_tx_wait_ack(struct irot_priv *p)
-{
-	long rc;
-
-	rc = wait_event_idle_timeout(p->tx_done_wq,
-				     kthread_should_stop() || irot_tx_idle(p),
-				     msecs_to_jiffies(IROT_TX_ACK_TIMEOUT_MS));
-
-	if (kthread_should_stop())
-		return -ENODEV;
-
-	/*
-	 * rc == 0 means the timeout expired, but the condition may still have
-	 * become true on the last jiffy, so re-check before declaring the
-	 * transport broken.
-	 */
-	if (!rc && !irot_tx_idle(p))
-		return -ETIMEDOUT;
-
-	return 0;
-}
-
-/*
- * RX ring helpers. All four run with rx_lock held and return false when the
- * ring is full or empty. irot_push_ack() records a counter that owes the peer
- * an ACK but whose payload was dropped or duplicated.
- */
-static bool irot_push_ack(struct irot_priv *p, u32 counter)
-{
-	if (p->rx_ack_count >= IROT_RX_ACK_RING_SIZE)
-		return false;
-
-	p->rx_ack_ring[p->rx_ack_tail] = counter;
-	p->rx_ack_tail = (p->rx_ack_tail + 1) % IROT_RX_ACK_RING_SIZE;
-	p->rx_ack_count++;
-
-	return true;
-}
-
-static bool irot_pop_ack(struct irot_priv *p, u32 *counter)
-{
-	if (!p->rx_ack_count)
-		return false;
-
-	*counter = p->rx_ack_ring[p->rx_ack_head];
-	p->rx_ack_head = (p->rx_ack_head + 1) % IROT_RX_ACK_RING_SIZE;
-	p->rx_ack_count--;
-
-	return true;
-}
-
-static bool irot_push_rx(struct irot_priv *p, const struct irot_rx_entry *e)
-{
-	if (p->rx_count >= IROT_RX_RING_SIZE)
-		return false;
-
-	p->rx_ring[p->rx_tail] = *e;
-	p->rx_tail = (p->rx_tail + 1) % IROT_RX_RING_SIZE;
-	p->rx_count++;
-
-	return true;
-}
-
-static bool irot_pop_rx(struct irot_priv *p, struct irot_rx_entry *e)
-{
-	if (!p->rx_count)
-		return false;
-
-	*e = p->rx_ring[p->rx_head];
-	p->rx_head = (p->rx_head + 1) % IROT_RX_RING_SIZE;
-	p->rx_count--;
-
-	return true;
-}
-
-/*
- * cc_mctp_buffer: the negotiated windows have arrived. Write-once; a zero
- * mtu_limit means "no answer yet", which also covers a firmware that replies
- * with an empty descriptor.
- */
+/* cc_mctp_buffer: the peer's windows. Write-once; zero mtu means no answer. */
 static void irot_cb_buffer_rsp(struct irot_priv *p, const struct irot_msg *m)
 {
-	u32 mtu_limit = le32_to_cpu(m->data.buffers.mtu_limit);
-	unsigned long flags;
+	u32 mtu = le32_to_cpu(m->data.buffers.mtu_limit);
 
-	spin_lock_irqsave(&p->rx_lock, flags);
-	if (!p->nego_valid && mtu_limit) {
-		irot_region_from_span(&p->nego_write, &m->data.buffers.host_write);
-		irot_region_from_span(&p->nego_read, &m->data.buffers.host_read);
-		p->nego_mtu_limit = mtu_limit;
-		p->nego_valid = true;
+	scoped_guard(spinlock_irqsave, &p->rx_lock) {
+		if (!p->buffers_valid && mtu) {
+			irot_region_from_span(&p->host_write,
+					      &m->data.buffers.host_write);
+			irot_region_from_span(&p->host_read,
+					      &m->data.buffers.host_read);
+			p->mtu = mtu;
+			p->buffers_valid = true;
+		}
 	}
-	spin_unlock_irqrestore(&p->rx_lock, flags);
 
-	up(&p->probe_sem);
+	complete(&p->buffers_done);
 }
 
 /*
- * cc_mctp: an inbound packet is sitting in host_read. Decides, without
- * sleeping, what we owe the peer for this counter. The whole policy turns on
- * whether the peer retransmits; see struct irot_variant.
+ * cc_mctp: an inbound packet is sitting in host_read. Never ACKs from here;
+ * that is rx_work's job once the packet has been handed to the stack.
  */
 static void irot_cb_mctp(struct irot_priv *p, const struct irot_msg *m)
 {
-	bool retransmits = p->var->peer_retransmits;
 	struct irot_rx_entry e;
-	unsigned long flags;
-	bool stall = false;
 	bool wake = false;
 
 	e.counter = le32_to_cpu(m->data.mctp.counter);
@@ -609,131 +400,85 @@ static void irot_cb_mctp(struct irot_priv *p, const struct irot_msg *m)
 	e.base    = ((u64)le32_to_cpu(m->data.mctp.packet.address.high) << 32) |
 		    le32_to_cpu(m->data.mctp.packet.address.low);
 
-	spin_lock_irqsave(&p->rx_lock, flags);
-
-	if (p->rx_stalled) {
-		dev_core_stats_rx_dropped_inc(p->ndev);
-		goto out;
+	scoped_guard(spinlock_irqsave, &p->rx_lock) {
+		if (p->has_last_rx_counter && e.counter == p->last_rx_counter) {
+			/* Resend of a delivered packet: our ACK was missed */
+			p->dup_ack_counter = e.counter;
+			p->dup_ack_pending = true;
+			wake = true;
+		} else if (p->rx_busy) {
+			/*
+			 * A resend of the packet in rx_entry gets its ACK once
+			 * that is delivered. Anything else breaks the one
+			 * packet in flight rule; drop it unanswered and the
+			 * peer resends.
+			 */
+			if (e.counter != p->rx_entry.counter) {
+				p->rx_dropped++;
+				wake = true;
+			}
+		} else {
+			p->rx_entry = e;
+			p->rx_busy = true;
+			p->rx_new = true;
+			wake = true;
+		}
 	}
-
-	/*
-	 * A counter we have already delivered. Only a retransmitting peer can
-	 * produce one, so only then is it a duplicate rather than a wrap: ACK
-	 * it without handing the same packet to the stack twice. If there is
-	 * no room to record the ACK, withholding it is safe -- it comes back.
-	 */
-	if (retransmits && p->has_prev_rx_counter &&
-	    e.counter == p->prev_rx_counter) {
-		wake = irot_push_ack(p, e.counter);
-		goto out;
-	}
-
-	if (irot_push_rx(p, &e)) {
-		p->prev_rx_counter = e.counter;
-		p->has_prev_rx_counter = true;
-		wake = true;
-		goto out;
-	}
-
-	dev_core_stats_rx_dropped_inc(p->ndev);
-
-	if (retransmits) {
-		/*
-		 * Ordinary backpressure: say nothing and the peer sends it
-		 * again. Deliberately do not advance the dedup cursor, so the
-		 * retransmit counts as fresh.
-		 */
-		goto out;
-	}
-
-	if (irot_push_ack(p, e.counter)) {
-		wake = true;
-		goto out;
-	}
-
-	/*
-	 * Both rings are full and nothing will come back: we have lost an ACK
-	 * obligation and the peer will wait for it forever. Do not continue
-	 * silently.
-	 */
-	p->rx_stalled = true;
-	stall = true;
-
-out:
-	spin_unlock_irqrestore(&p->rx_lock, flags);
 
 	if (wake)
-		wake_up(&p->rx_wq);
+		queue_work(p->wq, &p->rx_work);
+}
 
-	if (stall) {
-		if (p->netdev_live) {
-			netif_carrier_off(p->ndev);
-			netif_stop_queue(p->ndev);
-		}
-		p->ndev->stats.rx_errors++;
-
-		dev_err_ratelimited(p->dev,
-				    "RX queues exhausted at counter %u, taking link down\n",
-				    e.counter);
+static void irot_cb_ping(struct irot_priv *p, const struct irot_msg *m)
+{
+	/* Liveness only: a newer ping supersedes an unanswered one */
+	scoped_guard(spinlock_irqsave, &p->rx_lock) {
+		p->ping_pending = true;
+		p->ping_value = le32_to_cpu(m->data.value);
 	}
+
+	queue_work(p->wq, &p->rx_work);
 }
 
 /*
- * Runs in the mailbox controller's delivery context: never sleeps and never
- * calls irot_send(), a reply is always deferred to the RX kthread. @data points
- * at the controller's frame buffer and is only valid for the duration of this
- * call, so everything needed is copied out here.
+ * Runs in the mailbox controller's delivery context: never sleeps, never
+ * touches the netdev, and defers every reply to the work items. @data points
+ * at the controller's frame buffer, which is only refreshed for the length
+ * the peer sent.
  */
 static void irot_rx_callback(struct mbox_client *cl, void *data)
 {
+	struct irot_priv *p = container_of(cl, struct irot_priv, cl);
 	const struct irot_mbox_frame *frame = data;
-	const struct irot_msg *m;
-	struct irot_priv *p;
-	unsigned long flags;
+	const struct irot_msg *m = &frame->irot;
 
-	if (!cl || !data)
+	if (le32_to_cpu(frame->len) != sizeof(*frame)) {
+		dev_warn_ratelimited(p->dev, "bad mailbox frame length %u\n",
+				     le32_to_cpu(frame->len));
 		return;
-
-	p = container_of(cl, struct irot_priv, cl);
-	m = &frame->irot;
+	}
 
 	switch (le32_to_cpu(m->command)) {
-	case irot_cc_mctp_buffer:
+	case IROT_CC_MCTP_BUFFER:
 		irot_cb_buffer_rsp(p, m);
 		break;
-
-	case irot_cc_mctp:
+	case IROT_CC_MCTP:
 		irot_cb_mctp(p, m);
 		break;
-
-	case irot_cc_mctp_done:
+	case IROT_CC_MCTP_DONE:
 		irot_tx_mark_done(p, le32_to_cpu(m->data.value));
 		break;
-
-	case irot_cc_ping:
-		/*
-		 * Do not reply from here: mbox_send_message() sleeps. Defer the
-		 * response to the RX kthread.
-		 */
-		spin_lock_irqsave(&p->rx_lock, flags);
-		p->pending_ping = true;
-		p->pending_ping_value = le32_to_cpu(m->data.value);
-		spin_unlock_irqrestore(&p->rx_lock, flags);
-		wake_up(&p->rx_wq);
+	case IROT_CC_PING:
+		irot_cb_ping(p, m);
 		break;
-
 	default:
-		dev_warn_ratelimited(p->dev, "unknown iROT command %u\n",
+		dev_warn_ratelimited(p->dev, "unknown IRoT command %u\n",
 				     le32_to_cpu(m->command));
 		break;
 	}
 }
 
-/*
- * tx_block = true: mbox_send_message() blocks until the controller reports
- * tx-done. irot_send() relies on that, and on tx_chan_lock, for the lifetime
- * of the frame it hands over.
- */
+/* tx_block: mbox_send_message() waits for the controller's tx-done. */
 static int irot_request_mbox(struct irot_priv *p)
 {
 	p->cl.dev          = p->dev;
@@ -742,203 +487,96 @@ static int irot_request_mbox(struct irot_priv *p)
 	p->cl.knows_txdone = false;
 	p->cl.tx_tout      = IROT_MBOX_TX_TOUT_MS;
 
-	p->chan_tx = mbox_request_channel_byname(&p->cl, IROT_MBOX_CHAN_TX);
-	if (IS_ERR(p->chan_tx)) {
-		int rc = PTR_ERR(p->chan_tx);
+	p->chan_tx = mbox_request_channel_byname(&p->cl, "tx");
+	if (IS_ERR(p->chan_tx))
+		return dev_err_probe(p->dev, PTR_ERR(p->chan_tx),
+				     "Failed to request tx mailbox channel\n");
 
-		/* Leave no ERR_PTR behind for the teardown paths to trip on */
-		p->chan_tx = NULL;
-		return dev_err_probe(p->dev, rc,
-				     "Failed to request \"%s\" mailbox channel\n",
-				     IROT_MBOX_CHAN_TX);
-	}
-
-	p->chan_rx = mbox_request_channel_byname(&p->cl, IROT_MBOX_CHAN_RX);
+	p->chan_rx = mbox_request_channel_byname(&p->cl, "rx");
 	if (IS_ERR(p->chan_rx)) {
-		int rc = PTR_ERR(p->chan_rx);
-
-		p->chan_rx = NULL;
 		mbox_free_channel(p->chan_tx);
-		p->chan_tx = NULL;
-		return dev_err_probe(p->dev, rc,
-				     "Failed to request \"%s\" mailbox channel\n",
-				     IROT_MBOX_CHAN_RX);
+		return dev_err_probe(p->dev, PTR_ERR(p->chan_rx),
+				     "Failed to request rx mailbox channel\n");
 	}
 
 	return 0;
 }
 
 /*
- * Read the "memory-region" phandle pair.
- *
- * of_reserved_mem_region_to_resource() is the right accessor rather than
- * of_address_to_resource(): it resolves the phandle, rejects an unavailable
- * node, and takes base and size from the registered reserved_mem entry. That
- * works for the "no-map" regions these windows use, which are carved out of
- * RAM and are not describable as a translatable bus address.
- *
- * Absent is not an error here. In negotiated mode the property is optional
- * (and then nothing bounds the firmware's answer); static mode requires it and
- * says so in irot_shmem_from_dt().
+ * The IRoT picks the windows and reports them over the mailbox, but must
+ * place them inside the memory-region carve-out. Anything outside it is
+ * rejected; a window inside it is addressed as an offset into the one mapping.
  */
-static int irot_parse_dt_windows(struct irot_priv *p)
+static void *irot_window_in_pool(struct irot_priv *p,
+				 const struct irot_region *r, const char *name)
 {
-	static const char * const label[2] = {
-		"host_write (AP -> IRoT)",
-		"host_read (IRoT -> AP)",
-	};
-	struct irot_region *win[2] = { &p->dt_write, &p->dt_read };
-	struct device_node *np = p->dev->of_node;
-	int i, count, rc;
+	u64 off;
 
-	if (!np || !of_property_present(np, "memory-region"))
-		return 0;
+	if (r->base < p->pool_res.start)
+		goto outside;
 
-	count = of_reserved_mem_region_count(np);
-	if (count != 2)
-		return dev_err_probe(p->dev, count < 0 ? count : -EINVAL,
-				     "memory-region needs exactly 2 reserved regions (got %d)\n",
-				     count);
+	off = r->base - p->pool_res.start;
+	if (off >= resource_size(&p->pool_res) ||
+	    r->size > resource_size(&p->pool_res) - off)
+		goto outside;
 
-	for (i = 0; i < 2; i++) {
-		struct resource res;
-		u64 size;
+	return p->pool + off;
 
-		rc = of_reserved_mem_region_to_resource(np, i, &res);
-		if (rc)
-			return dev_err_probe(p->dev, rc,
-					     "memory-region %d [%s] is not a usable reserved region\n",
-					     i, label[i]);
+outside:
+	return ERR_PTR(dev_err_probe(p->dev, -EINVAL,
+				     "%s window 0x%llx+%u outside memory-region %pR\n",
+				     name, r->base, r->size, &p->pool_res));
+}
 
-		size = resource_size(&res);
-		if (!size || size > U32_MAX)
-			return dev_err_probe(p->dev, -EINVAL,
-					     "memory-region %d [%s] size %llu out of range\n",
-					     i, label[i], size);
+static int irot_map_pool(struct irot_priv *p)
+{
+	int rc;
 
-		win[i]->base = res.start;
-		win[i]->size = (u32)size;
-	}
+	rc = of_reserved_mem_region_to_resource(p->dev->of_node, 0, &p->pool_res);
+	if (rc)
+		return dev_err_probe(p->dev, rc, "Missing memory-region\n");
 
-	p->have_dt_windows = true;
-
-	dev_dbg(p->dev,
-		"DT windows: write 0x%llx+%u, read 0x%llx+%u\n",
-		p->dt_write.base, p->dt_write.size,
-		p->dt_read.base, p->dt_read.size);
+	p->pool = devm_memremap(p->dev, p->pool_res.start,
+				resource_size(&p->pool_res), MEMREMAP_WC);
+	if (IS_ERR(p->pool))
+		return dev_err_probe(p->dev, PTR_ERR(p->pool),
+				     "Failed to map memory-region %pR\n",
+				     &p->pool_res);
 
 	return 0;
 }
 
 /*
- * Map both windows write-combining. Shared by both provisioning modes: by this
- * point host_write, host_read and mtu_limit are filled in, however they were
- * obtained. The per-window copy bounds are derived separately from the
- * advertised MTU, because a window may be smaller than it, and they are what
- * the data paths enforce.
- */
-static int irot_map_regions(struct irot_priv *p)
-{
-	p->rx_addr = devm_memremap(p->dev, p->host_read.base,
-				   p->host_read.size, MEMREMAP_WC);
-	if (IS_ERR(p->rx_addr))
-		return dev_err_probe(p->dev, PTR_ERR(p->rx_addr),
-				     "Failed to map host_read window\n");
-
-	p->tx_addr = devm_memremap(p->dev, p->host_write.base,
-				   p->host_write.size, MEMREMAP_WC);
-	if (IS_ERR(p->tx_addr))
-		return dev_err_probe(p->dev, PTR_ERR(p->tx_addr),
-				     "Failed to map host_write window\n");
-
-	p->read_mtu  = min(p->mtu_limit, p->host_read.size);
-	p->write_mtu = min(p->mtu_limit, p->host_write.size);
-
-	dev_info(p->dev,
-		 "shared windows: read 0x%llx+%u, write 0x%llx+%u, mtu_limit=%u read_mtu=%u write_mtu=%u\n",
-		 p->host_read.base, p->host_read.size,
-		 p->host_write.base, p->host_write.size,
-		 p->mtu_limit, p->read_mtu, p->write_mtu);
-
-	return 0;
-}
-
-/*
- * Bound the firmware's answer by the DT windows.
+ * Ask the peer for its windows, up to IROT_BUFFER_RETRIES times, then
+ * bounds-check them against the memory-region.
  *
- * The IRoT hands us bare physical addresses. Without a reference to check them
- * against, a buggy or compromised peer can point host_read or host_write at
- * any RAM and this driver will map it write-combining and copy packets through
- * it. irot_region_offset() only bounds each packet inside those windows, so
- * the windows themselves have to be bounded here.
- *
- * When the DT declares memory-region, the negotiated windows must lie inside
- * the reserved ones or probe fails. When it does not -- a legacy DT -- the
- * addresses are taken on trust and the absence of a check is logged.
- */
-static int irot_validate_negotiated(struct irot_priv *p)
-{
-	if (!p->have_dt_windows) {
-		dev_warn(p->dev,
-			 "no memory-region in DT: negotiated windows are unvalidated\n");
-		return 0;
-	}
-
-	if (!irot_region_contains(&p->dt_write, &p->host_write))
-		return dev_err_probe(p->dev, -ERANGE,
-				     "negotiated host_write 0x%llx+%u outside reserved window 0x%llx+%u\n",
-				     p->host_write.base, p->host_write.size,
-				     p->dt_write.base, p->dt_write.size);
-
-	if (!irot_region_contains(&p->dt_read, &p->host_read))
-		return dev_err_probe(p->dev, -ERANGE,
-				     "negotiated host_read 0x%llx+%u outside reserved window 0x%llx+%u\n",
-				     p->host_read.base, p->host_read.size,
-				     p->dt_read.base, p->dt_read.size);
-
-	dev_dbg(p->dev, "negotiated windows validated against DT\n");
-	return 0;
-}
-
-/*
- * Negotiate the shared windows: send cc_get_mctp_buffers and wait for
- * cc_mctp_buffer, up to IROT_BUFFER_RETRIES attempts of IROT_BUFFER_TIMEOUT_S
- * each. The answer is bounds-checked before anything is mapped.
+ * The IRoT is expected to be up before Linux probes this device. If it does
+ * not answer within IROT_BUFFER_RETRIES * IROT_BUFFER_TIMEOUT_S, probe fails
+ * for good; rebinding the driver retries. Probe is asynchronous, so the wait
+ * does not hold up boot.
  */
 static int irot_discover_buffers(struct irot_priv *p)
 {
-	struct irot_msg req = IROT_MSG_INIT;
-	unsigned long flags;
+	struct irot_msg req = {};
 	bool got = false;
 	int i, rc;
 	u32 cap;
 
-	req.command = cpu_to_le32(irot_cc_get_mctp_buffers);
+	req.command = cpu_to_le32(IROT_CC_GET_MCTP_BUFFERS);
 
 	for (i = 0; i < IROT_BUFFER_RETRIES && !got; i++) {
-		dev_dbg(p->dev, "buffer discovery attempt %d/%d\n",
-			i + 1, IROT_BUFFER_RETRIES);
+		reinit_completion(&p->buffers_done);
 
 		rc = irot_send(p, &req);
 		if (rc < 0)
 			return dev_err_probe(p->dev, rc,
 					     "Failed to send cc_get_mctp_buffers\n");
 
-		/* Woken by irot_cb_buffer_rsp(), or timed out */
-		rc = down_timeout(&p->probe_sem,
-				  msecs_to_jiffies(IROT_BUFFER_TIMEOUT_S * 1000));
-		if (rc)
-			dev_dbg(p->dev, "no cc_mctp_buffer within %us (attempt %d)\n",
-				IROT_BUFFER_TIMEOUT_S, i + 1);
+		wait_for_completion_timeout(&p->buffers_done,
+					    secs_to_jiffies(IROT_BUFFER_TIMEOUT_S));
 
-		spin_lock_irqsave(&p->rx_lock, flags);
-		got = p->nego_valid;
-		if (got) {
-			p->host_write = p->nego_write;
-			p->host_read  = p->nego_read;
-			p->mtu_limit  = p->nego_mtu_limit;
-		}
-		spin_unlock_irqrestore(&p->rx_lock, flags);
+		scoped_guard(spinlock_irqsave, &p->rx_lock)
+			got = p->buffers_valid;
 	}
 
 	if (!got)
@@ -946,409 +584,340 @@ static int irot_discover_buffers(struct irot_priv *p)
 				     "No cc_mctp_buffer after %d attempts\n",
 				     IROT_BUFFER_RETRIES);
 
-	/*
-	 * A window holds exactly one packet, so it also caps the MTU. Without
-	 * this clamp a firmware over-reporting mtu_limit would leave max_mtu
-	 * above write_mtu, and every packet an operator sent in that range
-	 * would be dropped instead of being refused here.
-	 */
-	cap = min_t(u32, min(p->host_read.size, p->host_write.size),
-		    IROT_MCTP_MAX_MTU);
+	/* A window holds exactly one packet, so it also caps the MTU */
+	cap = min3(p->host_read.size, p->host_write.size, IROT_MCTP_MAX_MTU);
 	if (cap < IROT_MCTP_MIN_MTU)
 		return dev_err_probe(p->dev, -EINVAL,
-				     "negotiated windows hold %u bytes, below the MCTP minimum MTU %u\n",
+				     "windows hold %u bytes, below the MCTP minimum MTU %u\n",
 				     cap, IROT_MCTP_MIN_MTU);
 
-	if (p->mtu_limit < IROT_MCTP_MIN_MTU)
+	if (p->mtu < IROT_MCTP_MIN_MTU)
 		return dev_err_probe(p->dev, -EINVAL,
-				     "negotiated mtu_limit %u below the MCTP minimum %u\n",
-				     p->mtu_limit, IROT_MCTP_MIN_MTU);
+				     "mtu_limit %u below the MCTP minimum %u\n",
+				     p->mtu, IROT_MCTP_MIN_MTU);
 
-	if (p->mtu_limit > cap) {
-		dev_warn(p->dev,
-			 "negotiated mtu_limit %u exceeds what the windows hold (%u), clamping\n",
-			 p->mtu_limit, cap);
-		p->mtu_limit = cap;
+	if (p->mtu > cap) {
+		dev_warn(p->dev, "mtu_limit %u exceeds the windows (%u), clamping\n",
+			 p->mtu, cap);
+		p->mtu = cap;
 	}
 
-	rc = irot_validate_negotiated(p);
-	if (rc)
-		return rc;
+	p->rx_addr = irot_window_in_pool(p, &p->host_read, "host_read");
+	if (IS_ERR(p->rx_addr))
+		return PTR_ERR(p->rx_addr);
 
-	return irot_map_regions(p);
-}
+	p->tx_addr = irot_window_in_pool(p, &p->host_write, "host_write");
+	if (IS_ERR(p->tx_addr))
+		return PTR_ERR(p->tx_addr);
 
-/*
- * Take the shared windows straight from the device tree, filling exactly the
- * state irot_discover_buffers() fills so that everything downstream is
- * identical between the two modes.
- *
- * There is no firmware mtu_limit here: the AP owns the windows, so the MTU is
- * what they hold. A window carries exactly one packet and each direction is
- * bounded by its own window, so the advertised MTU is the smaller of the two.
- * A peer whose reassembly buffer is smaller than that is an operator matter,
- * not a hardware description: "ip link set ... mtu N" covers it.
- */
-static int irot_shmem_from_dt(struct irot_priv *p)
-{
-	u32 cap;
-
-	if (!p->have_dt_windows)
-		return dev_err_probe(p->dev, -ENODEV,
-				     "this binding requires two memory-region phandles\n");
-
-	p->host_write = p->dt_write;
-	p->host_read  = p->dt_read;
-
-	cap = min(p->host_read.size, p->host_write.size);
-	if (cap < IROT_MCTP_MIN_MTU)
+	/* Both lie inside the pool, so neither end can wrap */
+	if (p->host_read.base < p->host_write.base + p->host_write.size &&
+	    p->host_write.base < p->host_read.base + p->host_read.size)
 		return dev_err_probe(p->dev, -EINVAL,
-				     "shared windows hold %u bytes, below the MCTP minimum MTU %u\n",
-				     cap, IROT_MCTP_MIN_MTU);
+				     "host_read and host_write windows overlap\n");
 
-	p->mtu_limit = cap;
+	dev_dbg(p->dev, "windows: read 0x%llx+%u, write 0x%llx+%u, mtu %u\n",
+		p->host_read.base, p->host_read.size,
+		p->host_write.base, p->host_write.size, p->mtu);
 
-	return irot_map_regions(p);
+	return 0;
 }
 
 /*
- * Answer for a packet the RX thread could not deliver.
- *
- * A retransmitting peer must not be told the packet arrived: withhold the ACK
- * and it comes back, where the dedup path in irot_cb_mctp() acknowledges the
- * retransmit without delivering it. A peer that never retransmits must be
- * answered or its write slot wedges.
+ * Copy one inbound packet out of host_read and hand it to the stack. Drops
+ * that the core does not count itself are added to @dropped.
  */
-static void irot_rx_ack_dropped(struct irot_priv *p, u32 counter)
-{
-	int rc;
-
-	if (p->var->peer_retransmits)
-		return;
-
-	rc = irot_send_done(p, counter);
-	if (rc < 0) {
-		dev_warn_ratelimited(p->dev,
-				     "Failed to ACK dropped RX counter %u: %d\n",
-				     counter, rc);
-		p->ndev->stats.rx_errors++;
-	}
-}
-
-/*
- * Hand one inbound packet to the network stack. On false the caller applies the
- * per-peer drop policy; the counter is answered either way by the caller.
- */
-static bool irot_rx_deliver(struct irot_priv *p, const struct irot_rx_entry *e)
+static enum irot_rx_result irot_rx_deliver(struct irot_priv *p,
+					   const struct irot_rx_entry *e,
+					   unsigned int *dropped)
 {
 	struct sk_buff *skb;
 	u64 off;
 
-	if (!e->size || e->size > p->read_mtu ||
+	/*
+	 * host_read bounds the packet, not the negotiated MTU: with asymmetric
+	 * windows the peer may send more than p->mtu. The cap only stops an
+	 * oversized window from turning into an allocation that fails on every
+	 * resend.
+	 */
+	if (!e->size || e->size > IROT_MCTP_MAX_MTU ||
 	    !irot_region_offset(&p->host_read, e->base, e->size, &off)) {
 		dev_warn_ratelimited(p->dev,
-				     "invalid RX span addr=0x%llx size=%u (window 0x%llx+%u, read_mtu %u)\n",
+				     "invalid RX span 0x%llx+%u (window 0x%llx+%u)\n",
 				     e->base, e->size, p->host_read.base,
-				     p->host_read.size, p->read_mtu);
-		dev_core_stats_rx_dropped_inc(p->ndev);
-		return false;
+				     p->host_read.size);
+		(*dropped)++;
+		return IROT_RX_INVALID;
+	}
+
+	/* ACK and drop: the peer must not be left holding its window */
+	if (!netif_running(p->ndev)) {
+		(*dropped)++;
+		return IROT_RX_INVALID;
 	}
 
 	skb = netdev_alloc_skb(p->ndev, e->size);
 	if (!skb) {
-		dev_core_stats_rx_dropped_inc(p->ndev);
-		return false;
+		(*dropped)++;
+		return IROT_RX_RETRY;
 	}
 
 	/*
-	 * The peer wrote the packet and then rang the doorbell. Order our read
-	 * of the window after that notification, so we cannot observe a stale
-	 * or partially written payload.
+	 * Order the payload read after the doorbell that announced it; pairs
+	 * with the IRoT's write barrier before it rang the doorbell.
 	 */
-	rmb();
+	dma_rmb();
 
 	skb_put_data(skb, (u8 *)p->rx_addr + off, e->size);
 
 	skb->protocol = htons(ETH_P_MCTP);
 	skb_reset_mac_header(skb);
 	skb_reset_network_header(skb);
-	/* No physical addressing on this point-to-point link */
 	__mctp_cb(skb)->halen = 0;
 
-	if (netif_rx(skb) != NET_RX_SUCCESS) {
-		dev_core_stats_rx_dropped_inc(p->ndev);
-		return false;
-	}
+	/* The core counts the drop itself */
+	if (netif_rx(skb) != NET_RX_SUCCESS)
+		return IROT_RX_RETRY;
 
-	p->ndev->stats.rx_packets++;
-	p->ndev->stats.rx_bytes += e->size;
-
-	return true;
+	return IROT_RX_DELIVERED;
 }
 
 /*
- * RX worker: deferred pings, owed ACKs, inbound packets -- one of each per
- * pass. Every path that consumes an entry re-raises the wait condition if more
- * remain, so nothing is left stranded in a ring.
+ * RX work: answers pings, re-ACKs resends of delivered packets, and delivers
+ * new packets. A packet is ACKed only after the stack has it, and the dedup
+ * cursor moves only then, so a packet that could not be delivered is
+ * delivered when the peer resends it. The callback requeues this work for
+ * every message, so one pass per run is enough.
  */
-static int irot_rx_thread(void *arg)
+static void irot_rx_work(struct work_struct *work)
 {
-	struct irot_priv *p = arg;
+	struct irot_priv *p = container_of(work, struct irot_priv, rx_work);
+	enum irot_rx_result res;
+	struct irot_rx_entry e;
+	bool do_ping, do_ack, do_rx;
+	unsigned int dropped;
+	u32 ping_value;
+	u32 ack_counter;
 
-	while (!kthread_should_stop()) {
-		struct irot_rx_entry e;
-		unsigned long flags;
-		u32 ack_counter = 0;
-		u32 ping_value = 0;
-		bool do_ping, have_ack, have_rx;
-		bool delivered;
+	scoped_guard(spinlock_irqsave, &p->rx_lock) {
+		do_ping = p->ping_pending;
+		ping_value = p->ping_value;
+		p->ping_pending = false;
+
+		do_ack = p->dup_ack_pending;
+		ack_counter = p->dup_ack_counter;
+		p->dup_ack_pending = false;
+
+		/* rx_busy stays set until the packet is answered */
+		do_rx = p->rx_new;
+		e = p->rx_entry;
+		p->rx_new = false;
+
+		dropped = p->rx_dropped;
+		p->rx_dropped = 0;
+	}
+
+	if (do_ping) {
+		struct irot_msg rsp = {};
 		int rc;
 
-		wait_event_idle(p->rx_wq,
-				kthread_should_stop() ||
-				READ_ONCE(p->rx_count) ||
-				READ_ONCE(p->rx_ack_count) ||
-				READ_ONCE(p->pending_ping));
+		rsp.command    = cpu_to_le32(IROT_CC_PING_RSP);
+		rsp.data.value = cpu_to_le32(ping_value);
 
-		if (kthread_should_stop())
-			break;
+		rc = irot_send(p, &rsp);
+		if (rc < 0)
+			dev_warn_ratelimited(p->dev, "Failed to answer ping: %d\n",
+					     rc);
+	}
 
-		spin_lock_irqsave(&p->rx_lock, flags);
-		do_ping = p->pending_ping;
-		ping_value = p->pending_ping_value;
-		p->pending_ping = false;
-		have_ack = irot_pop_ack(p, &ack_counter);
-		have_rx = irot_pop_rx(p, &e);
-		spin_unlock_irqrestore(&p->rx_lock, flags);
+	if (do_ack)
+		irot_send_done(p, ack_counter);
 
-		if (do_ping) {
-			struct irot_msg rsp = IROT_MSG_INIT;
+	if (do_rx) {
+		res = irot_rx_deliver(p, &e, &dropped);
 
-			rsp.command    = cpu_to_le32(irot_cc_ping_rsp);
-			rsp.data.value = cpu_to_le32(ping_value);
-
-			rc = irot_send(p, &rsp);
-			if (rc < 0)
-				dev_warn_ratelimited(p->dev,
-						     "Failed to send ping response: %d\n",
-						     rc);
-		}
-
-		/*
-		 * A counter whose payload was dropped or duplicated in the
-		 * callback. Owed unconditionally: the callback only records one
-		 * when this peer requires an answer, or when it is a duplicate
-		 * of a packet already delivered.
-		 */
-		if (have_ack) {
-			rc = irot_send_done(p, ack_counter);
-			if (rc < 0) {
-				dev_warn_ratelimited(p->dev,
-						     "Failed to ACK RX counter %u: %d\n",
-						     ack_counter, rc);
-				p->ndev->stats.rx_errors++;
+		scoped_guard(spinlock_irqsave, &p->rx_lock) {
+			p->rx_busy = false;
+			if (res == IROT_RX_DELIVERED) {
+				p->last_rx_counter = e.counter;
+				p->has_last_rx_counter = true;
 			}
 		}
-
-		if (!have_rx)
-			continue;
-
-		delivered = irot_rx_deliver(p, &e);
-		if (!delivered) {
-			irot_rx_ack_dropped(p, e.counter);
-			continue;
-		}
-
-		rc = irot_send_done(p, e.counter);
-		if (rc < 0) {
-			dev_warn_ratelimited(p->dev,
-					     "Failed to ACK RX counter %u: %d\n",
-					     e.counter, rc);
-			p->ndev->stats.rx_errors++;
-		}
 	}
 
-	return 0;
+	local_bh_disable();
+	if (dropped)
+		dev_dstats_rx_dropped_add(p->ndev, dropped);
+	if (do_rx && res == IROT_RX_DELIVERED)
+		dev_dstats_rx_add(p->ndev, e.size);
+	local_bh_enable();
+
+	/* Withhold the ACK and the peer resends */
+	if (do_rx && res != IROT_RX_RETRY)
+		irot_send_done(p, e.counter);
 }
 
 /*
- * TX worker: dequeue skbs and write them into host_write, one outstanding write
- * at a time. The window is only reused once the peer has acknowledged the
- * previous packet, and an overdue ACK stalls the link rather than force-freeing
- * the window under the peer's feet.
+ * TX work: write the skb handed over by xmit into host_write and ring the
+ * doorbell. The queue stays stopped until the peer ACKs; an overdue ACK
+ * stalls the link rather than freeing the window under the peer's feet.
+ * With no skb to send, it was kicked because the window came free.
  */
-static int irot_tx_thread(void *arg)
+static void irot_tx_work(struct work_struct *work)
 {
-	struct irot_priv *p = arg;
-	u32 next_tx_counter = p->var->first_tx_counter;
+	struct irot_priv *p = container_of(work, struct irot_priv, tx_work);
+	struct irot_msg m = {};
+	struct sk_buff *skb;
+	u32 tx_counter;
+	u32 len;
+	int rc;
 
-	while (!kthread_should_stop()) {
-		struct irot_msg m = IROT_MSG_INIT;
-		struct sk_buff *skb;
-		u32 tx_counter;
-		u32 len;
-		int rc;
-
-		wait_event_idle(p->tx_wq,
-				kthread_should_stop() ||
-				irot_tx_stall_ended(p) ||
-				!skb_queue_empty(&p->tx_queue));
-
-		if (kthread_should_stop())
-			break;
-
-		irot_tx_stall_recover(p);
-
-		skb = skb_dequeue(&p->tx_queue);
-		if (!skb)
-			continue;
-
-		if (irot_tx_stalled(p)) {
-			dev_core_stats_tx_dropped_inc(p->ndev);
-			dev_kfree_skb_any(skb);
-			continue;
-		}
-
-		if (p->netdev_live)
-			netif_wake_queue(p->ndev);
-
-		len = skb->len;
-
-		if (len == 0 || len > p->write_mtu) {
-			dev_warn_ratelimited(p->dev,
-					     "TX invalid len=%u (write_mtu %u), dropping\n",
-					     len, p->write_mtu);
-			dev_core_stats_tx_dropped_inc(p->ndev);
-			dev_kfree_skb_any(skb);
-			continue;
-		}
-
-		/*
-		 * skb_copy_bits, not memcpy(skb->data, ...): an skb may be
-		 * nonlinear, and skb->data covers only the linear head.
-		 */
-		if (skb_copy_bits(skb, 0, p->tx_addr, len)) {
-			dev_warn_ratelimited(p->dev,
-					     "TX skb_copy_bits(%u) failed, dropping\n",
-					     len);
-			dev_core_stats_tx_dropped_inc(p->ndev);
-			dev_kfree_skb_any(skb);
-			continue;
-		}
-
-		/* Publish the payload before ringing the doorbell */
-		wmb();
-
-		tx_counter = next_tx_counter++;
-
-		m.command = cpu_to_le32(irot_cc_mctp);
-		m.data.mctp.counter = cpu_to_le32(tx_counter);
-		/* Always at the start of host_write: one outstanding write */
-		irot_span_from_region(&m.data.mctp.packet,
-				      &(struct irot_region){
-					      .base = p->host_write.base,
-					      .size = len,
-				      });
-
-		/*
-		 * Claim the window before sending, so a cc_mctp_done that
-		 * arrives immediately still matches an in-flight counter.
-		 */
-		rc = irot_tx_mark_pending(p, tx_counter);
-		if (rc) {
-			dev_core_stats_tx_dropped_inc(p->ndev);
-			dev_kfree_skb_any(skb);
-			continue;
-		}
-
-		rc = irot_send(p, &m);
-		if (rc == -ETIME) {
-			/*
-			 * The AX3005 mailbox controller has already copied the
-			 * message into its hardware FIFO, but the FIFO did not
-			 * drain before tx_tout expired. The peer may therefore
-			 * still consume the notification. Keep the window
-			 * claimed and do not reuse it.
-			 */
-			dev_err(p->dev,
-				"TX mailbox completion timed out, stalling link\n");
-			dev_core_stats_tx_dropped_inc(p->ndev);
-			irot_tx_stall(p);
-			dev_kfree_skb_any(skb);
-			continue;
-		}
-		if (rc < 0) {
-			/* Nothing left the controller: the window is ours again */
-			dev_err(p->dev, "TX send failed rc=%d\n", rc);
-			dev_core_stats_tx_dropped_inc(p->ndev);
-			irot_tx_mark_done(p, tx_counter);
-			dev_kfree_skb_any(skb);
-			continue;
-		}
-
-		p->ndev->stats.tx_packets++;
-		p->ndev->stats.tx_bytes += len;
-
-		dev_kfree_skb_any(skb);
-
-		rc = irot_tx_wait_ack(p);
-		if (rc == -ETIMEDOUT)
-			irot_tx_stall(p);
-		else if (rc)
-			break;
+	scoped_guard(spinlock_irqsave, &p->tx_state_lock) {
+		skb = p->tx_skb;
+		p->tx_skb = NULL;
 	}
 
-	return 0;
+	if (!skb) {
+		irot_tx_wake(p);
+		return;
+	}
+
+	/*
+	 * Claim the window before writing it, so a cc_mctp_done that arrives
+	 * immediately still matches an in-flight counter. xmit only runs once
+	 * the window is free, so this cannot fail.
+	 */
+	tx_counter = p->next_tx_counter;
+	if (WARN_ON_ONCE(irot_tx_mark_pending(p, tx_counter))) {
+		irot_tx_drop(p, skb);
+		return;
+	}
+	p->next_tx_counter++;
+
+	/* skb_copy_bits() handles nonlinear skbs */
+	len = skb->len;
+	if (skb_copy_bits(skb, 0, p->tx_addr, len)) {
+		irot_tx_mark_done(p, tx_counter);
+		irot_tx_drop(p, skb);
+		return;
+	}
+
+	/* Publish the payload before ringing the doorbell */
+	dma_wmb();
+
+	m.command = cpu_to_le32(IROT_CC_MCTP);
+	m.data.mctp.counter = cpu_to_le32(tx_counter);
+	/* Always at the start of host_write: one outstanding write */
+	irot_span_from_region(&m.data.mctp.packet,
+			      &(struct irot_region){
+				      .base = p->host_write.base,
+				      .size = len,
+			      });
+
+	/* Arm before sending, so an immediate cc_mctp_done cancels it */
+	mod_delayed_work(p->wq, &p->tx_timeout_work,
+			 msecs_to_jiffies(IROT_TX_ACK_TIMEOUT_MS));
+
+	rc = irot_send(p, &m);
+	if (rc == -ETIME) {
+		/*
+		 * The controller has queued the message but the FIFO did not
+		 * drain in time; the peer may still consume it, so keep the
+		 * window claimed.
+		 */
+		irot_tx_drop(p, skb);
+		irot_tx_stall(p, "mailbox send timed out");
+		return;
+	}
+	if (rc < 0) {
+		/* Nothing left the controller: the window is ours */
+		dev_err_ratelimited(p->dev, "TX send failed: %d\n", rc);
+		irot_tx_mark_done(p, tx_counter);
+		irot_tx_drop(p, skb);
+		return;
+	}
+
+	local_bh_disable();
+	dev_dstats_tx_add(p->ndev, len);
+	local_bh_enable();
+	consume_skb(skb);
 }
 
-/*
- * Hand the skb to the TX kthread. tx_queue.lock is held across the depth check,
- * the enqueue and the flow-control decision so they are one atomic step.
- * NETDEV_TX_BUSY asks the stack to requeue; nothing is dropped on that path.
- */
+static void irot_tx_timeout_work(struct work_struct *work)
+{
+	struct irot_priv *p = container_of(to_delayed_work(work),
+					   struct irot_priv, tx_timeout_work);
+
+	irot_tx_stall(p, "no cc_mctp_done in time");
+}
+
+/* Hand the skb to tx_work; the queue restarts once the peer ACKs it */
 static netdev_tx_t irot_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
-	struct irot_netdev_priv *priv = netdev_priv(ndev);
-	netdev_tx_t status = NETDEV_TX_BUSY;
-	struct irot_priv *p;
-	unsigned long flags;
+	struct irot_priv *p = netdev_priv(ndev);
+	bool busy;
 
-	spin_lock_irqsave(&priv->lock, flags);
-	p = priv->p;
-	spin_unlock_irqrestore(&priv->lock, flags);
-
-	if (!p) {
-		dev_kfree_skb_any(skb);
+	if (!skb->len || skb->len > p->mtu) {
+		dev_warn_ratelimited(p->dev, "TX invalid len %u (mtu %u), dropping\n",
+				     skb->len, p->mtu);
+		irot_tx_drop(p, skb);
 		return NETDEV_TX_OK;
 	}
 
-	spin_lock_irqsave(&p->tx_queue.lock, flags);
-	if (skb_queue_len(&p->tx_queue) >= IROT_TX_QUEUE_SIZE) {
+	/* Stop and hand over under the lock that irot_tx_wake() wakes under */
+	scoped_guard(spinlock_irqsave, &p->tx_state_lock) {
 		netif_stop_queue(ndev);
-		status = NETDEV_TX_BUSY;
-	} else {
-		__skb_queue_tail(&p->tx_queue, skb);
-		if (skb_queue_len(&p->tx_queue) >= IROT_TX_QUEUE_SIZE)
-			netif_stop_queue(ndev);
-		status = NETDEV_TX_OK;
+		busy = p->tx_skb;
+		if (!busy)
+			p->tx_skb = skb;
 	}
-	spin_unlock_irqrestore(&p->tx_queue.lock, flags);
 
-	if (status == NETDEV_TX_OK)
-		wake_up(&p->tx_wq);
+	/* Unreachable: the queue stays stopped while tx_skb is held */
+	if (WARN_ON_ONCE(busy))
+		return NETDEV_TX_BUSY;
 
-	return status;
+	queue_work(p->wq, &p->tx_work);
+
+	return NETDEV_TX_OK;
 }
 
 static int irot_ndo_open(struct net_device *ndev)
 {
-	netif_start_queue(ndev);
+	struct irot_priv *p = netdev_priv(ndev);
+
+	/*
+	 * A busy or stalled window keeps the queue stopped; tx_work wakes it
+	 * once the ACK arrives, since netif_running() is already true here.
+	 */
+	if (irot_tx_ready(p))
+		netif_start_queue(ndev);
+	else
+		netif_stop_queue(ndev);
+
 	return 0;
 }
 
 static int irot_ndo_stop(struct net_device *ndev)
 {
+	struct irot_priv *p = netdev_priv(ndev);
+	struct sk_buff *skb;
+
 	netif_stop_queue(ndev);
+
+	/*
+	 * Do not touch tx_timeout_work: a packet in flight still owns the
+	 * window, and the stall and late-ACK handling must keep running.
+	 */
+	cancel_work_sync(&p->tx_work);
+
+	scoped_guard(spinlock_irqsave, &p->tx_state_lock) {
+		skb = p->tx_skb;
+		p->tx_skb = NULL;
+	}
+
+	if (skb)
+		irot_tx_drop(p, skb);
+
 	return 0;
 }
 
@@ -1359,9 +928,9 @@ static const struct net_device_ops irot_netdev_ops = {
 };
 
 /*
- * A point-to-point MCTP link with no physical addressing, as for the serial and
- * USB bindings. The MTU starts at the DSP0236 floor and is raised in probe once
- * the shared windows are known.
+ * A point-to-point MCTP link with no physical addressing. The MTU starts at
+ * the DSP0236 baseline; mtu and max_mtu are raised in probe once the
+ * negotiated mtu_limit is known.
  */
 static void irot_netdev_setup(struct net_device *ndev)
 {
@@ -1369,128 +938,108 @@ static void irot_netdev_setup(struct net_device *ndev)
 	ndev->addr_len        = 0;
 	ndev->hard_header_len = 0;
 	ndev->flags           = IFF_NOARP;
-	ndev->tx_queue_len    = IROT_TX_QUEUE_SIZE;
+	ndev->tx_queue_len    = IROT_TX_QUEUE_LEN;
 	ndev->min_mtu         = IROT_MCTP_MIN_MTU;
 	ndev->max_mtu         = IROT_MCTP_MIN_MTU;
 	ndev->mtu             = IROT_MCTP_MIN_MTU;
 	ndev->netdev_ops      = &irot_netdev_ops;
+	ndev->pcpu_stat_type  = NETDEV_PCPU_STAT_DSTATS;
 }
 
 /*
- * Probe order matters:
- *   1. allocate state, init every lock and wait queue
- *   2. read the DT windows (a bound in negotiated mode, the source in static)
- *   3. allocate the netdev, so the mailbox callback has somewhere to put stats
- *   4. request the mailbox channels -- the callback goes live here
- *   5. establish the shared windows: negotiate with the peer, or take the DT
- *      values. Both paths end in irot_map_regions().
- *   6. publish the real MTU and register with the MCTP core
- *   7. start the kthreads and raise the carrier
+ * Stop all deferred work for good. After this, the callback's queue_work()
+ * calls are no-ops, and nothing but probe or remove sends on the mailbox.
+ */
+static void irot_disable_work(struct irot_priv *p)
+{
+	disable_work_sync(&p->rx_work);
+	disable_work_sync(&p->tx_work);
+	disable_delayed_work_sync(&p->tx_timeout_work);
+}
+
+/*
+ * The work items touch the netdev's carrier, queue and stats, so they only
+ * run while it is registered: rx_work is held off until then, and tx_work and
+ * tx_timeout_work are only queued once xmit has run.
+ *
+ * A cc_ping or cc_mctp that arrives while the windows are being negotiated is
+ * recorded by the callback and answered once rx_work is enabled, so the IRoT
+ * sees no reply until registration.
  */
 static int irot_probe(struct platform_device *pdev)
 {
-	struct irot_netdev_priv *priv;
 	struct device *dev = &pdev->dev;
 	struct net_device *ndev;
 	struct irot_priv *p;
 	int rc;
 
-	p = devm_kzalloc(dev, sizeof(*p), GFP_KERNEL);
-	if (!p)
-		return -ENOMEM;
-
-	p->dev = dev;
-
-	p->var = of_device_get_match_data(dev);
-	if (!p->var)
-		return dev_err_probe(dev, -ENODEV,
-				     "no variant data for this compatible\n");
-
-	skb_queue_head_init(&p->tx_queue);
-	init_waitqueue_head(&p->tx_wq);
-	init_waitqueue_head(&p->tx_done_wq);
-	init_waitqueue_head(&p->rx_wq);
-	spin_lock_init(&p->tx_state_lock);
-	spin_lock_init(&p->rx_lock);
-	mutex_init(&p->tx_chan_lock);
-	sema_init(&p->probe_sem, 0);
-
-	rc = irot_parse_dt_windows(p);
-	if (rc)
-		return rc;
-
-	ndev = alloc_netdev(sizeof(*priv), IROT_NETDEV_NAME, NET_NAME_ENUM,
+	ndev = alloc_netdev(sizeof(*p), "mctpirot%d", NET_NAME_ENUM,
 			    irot_netdev_setup);
 	if (!ndev)
 		return -ENOMEM;
 
 	SET_NETDEV_DEV(ndev, dev);
-	p->ndev = ndev;
 
-	priv = netdev_priv(ndev);
-	spin_lock_init(&priv->lock);
-	priv->p = p;
+	p = netdev_priv(ndev);
+	p->dev = dev;
+	p->ndev = ndev;
+	spin_lock_init(&p->tx_state_lock);
+	spin_lock_init(&p->rx_lock);
+	mutex_init(&p->tx_chan_lock);
+	init_completion(&p->buffers_done);
+	INIT_WORK(&p->tx_work, irot_tx_work);
+	INIT_WORK(&p->rx_work, irot_rx_work);
+	INIT_DELAYED_WORK(&p->tx_timeout_work, irot_tx_timeout_work);
+
+	/* rx_work hands packets to the stack: hold it off until registration */
+	disable_work(&p->rx_work);
 
 	platform_set_drvdata(pdev, p);
 
+	p->wq = alloc_ordered_workqueue("irot/%s", 0, dev_name(dev));
+	if (!p->wq) {
+		rc = -ENOMEM;
+		goto err_free_netdev;
+	}
+
+	rc = irot_map_pool(p);
+	if (rc)
+		goto err_destroy_wq;
+
 	rc = irot_request_mbox(p);
 	if (rc)
-		goto err_free_netdev;
+		goto err_destroy_wq;
 
-	if (p->var->negotiate_buffers)
-		rc = irot_discover_buffers(p);
-	else
-		rc = irot_shmem_from_dt(p);
+	rc = irot_discover_buffers(p);
 	if (rc)
 		goto err_free_mailbox;
 
-	ndev->max_mtu = p->mtu_limit;
-	ndev->mtu     = p->mtu_limit;
+	/* The peer cannot reassemble, so advertise the full negotiated MTU */
+	ndev->max_mtu = p->mtu;
+	ndev->mtu = p->mtu;
+
+	netif_carrier_off(ndev);
 
 	rc = mctp_register_netdev(ndev, NULL, MCTP_PHYS_BINDING_VENDOR);
 	if (rc) {
-		dev_err(dev, "mctp_register_netdev failed: %d\n", rc);
+		rc = dev_err_probe(dev, rc, "Failed to register MCTP netdev\n");
 		goto err_free_mailbox;
 	}
-	p->netdev_live = true;
 
-	p->tx_thread = kthread_run(irot_tx_thread, p, "irot-tx/%s",
-				   dev_name(dev));
-	if (IS_ERR(p->tx_thread)) {
-		rc = PTR_ERR(p->tx_thread);
-		p->tx_thread = NULL;
-		dev_err(dev, "failed to start TX kthread: %d\n", rc);
-		goto err_unregister;
-	}
-
-	p->rx_thread = kthread_run(irot_rx_thread, p, "irot-rx/%s",
-				   dev_name(dev));
-	if (IS_ERR(p->rx_thread)) {
-		rc = PTR_ERR(p->rx_thread);
-		p->rx_thread = NULL;
-		dev_err(dev, "failed to start RX kthread: %d\n", rc);
-		goto err_stop_tx;
-	}
-
+	enable_and_queue_work(p->wq, &p->rx_work);
 	netif_carrier_on(ndev);
 
-	dev_info(dev,
-		 "%s MCTP transport ready on \"%s\": %s windows, MTU %u\n",
-		 p->var->desc, ndev->name,
-		 p->var->negotiate_buffers ? "negotiated" : "device-tree",
-		 ndev->mtu);
+	dev_dbg(dev, "MCTP transport ready on %s, max MTU %u\n",
+		ndev->name, ndev->max_mtu);
 
 	return 0;
 
-err_stop_tx:
-	kthread_stop(p->tx_thread);
-	p->tx_thread = NULL;
-err_unregister:
-	p->netdev_live = false;
-	mctp_unregister_netdev(ndev);
 err_free_mailbox:
+	irot_disable_work(p);
 	mbox_free_channel(p->chan_rx);
 	mbox_free_channel(p->chan_tx);
+err_destroy_wq:
+	destroy_workqueue(p->wq);
 err_free_netdev:
 	free_netdev(ndev);
 	return rc;
@@ -1499,86 +1048,27 @@ err_free_netdev:
 static void irot_remove(struct platform_device *pdev)
 {
 	struct irot_priv *p = platform_get_drvdata(pdev);
-	struct irot_netdev_priv *priv;
-	unsigned long flags;
-
-	if (!p)
-		return;
+	struct net_device *ndev = p->ndev;
 
 	/*
-	 * Unregister first: that runs ndo_stop and quiesces the TX path, so the
-	 * stack cannot queue anything new while the rest is torn down. The
-	 * net_device itself stays alive until the end because the kthreads
-	 * still touch its stats.
+	 * Unlike the usual order, quiesce the work items before unregistering:
+	 * they raise and drop the carrier, which must not happen once the
+	 * netdev is gone. An xmit that races with this leaves its skb in
+	 * tx_skb, which is freed below once unregistering has stopped xmit.
 	 */
-	if (p->ndev) {
-		priv = netdev_priv(p->ndev);
+	irot_disable_work(p);
+	mctp_unregister_netdev(ndev);
 
-		spin_lock_irqsave(&priv->lock, flags);
-		priv->p = NULL;
-		spin_unlock_irqrestore(&priv->lock, flags);
+	mbox_free_channel(p->chan_rx);
+	mbox_free_channel(p->chan_tx);
 
-		p->netdev_live = false;
-		mctp_unregister_netdev(p->ndev);
-	}
-
-	/* Wake both workers out of any wait so they can see the stop request */
-	wake_up(&p->rx_wq);
-	wake_up(&p->tx_wq);
-	wake_up(&p->tx_done_wq);
-
-	if (p->rx_thread) {
-		kthread_stop(p->rx_thread);
-		p->rx_thread = NULL;
-	}
-	if (p->tx_thread) {
-		kthread_stop(p->tx_thread);
-		p->tx_thread = NULL;
-	}
-
-	/* No senders left, so the channels can go */
-	if (p->chan_rx) {
-		mbox_free_channel(p->chan_rx);
-		p->chan_rx = NULL;
-	}
-	if (p->chan_tx) {
-		mbox_free_channel(p->chan_tx);
-		p->chan_tx = NULL;
-	}
-
-	skb_queue_purge(&p->tx_queue);
-
-	if (p->ndev) {
-		free_netdev(p->ndev);
-		p->ndev = NULL;
-	}
-
-	/* The window mappings are devm-managed and released after this */
+	destroy_workqueue(p->wq);
+	kfree_skb(p->tx_skb);
+	free_netdev(ndev);
 }
 
-static const struct irot_variant irot_variant_negotiated = {
-	.desc              = "Axiado IRoT v2",
-	.negotiate_buffers = true,
-	.peer_retransmits  = true,
-	.first_tx_counter  = 0,
-};
-
-static const struct irot_variant irot_variant_static = {
-	.desc              = "Axiado IRoT",
-	.negotiate_buffers = false,
-	.peer_retransmits  = false,
-	.first_tx_counter  = 1,
-};
-
 static const struct of_device_id irot_of_match[] = {
-	{
-		.compatible = IROT_COMPATIBLE_STATIC,
-		.data       = &irot_variant_static,
-	},
-	{
-		.compatible = IROT_COMPATIBLE_NEGOTIATED,
-		.data       = &irot_variant_negotiated,
-	},
+	{ .compatible = "axiado,ax3005-mctp-irot" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, irot_of_match);
@@ -1587,12 +1077,13 @@ static struct platform_driver irot_driver = {
 	.probe  = irot_probe,
 	.remove = irot_remove,
 	.driver = {
-		.name           = IROT_DRIVER_NAME,
+		.name           = "ax3005-mctp-irot",
 		.of_match_table = irot_of_match,
+		.probe_type     = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 module_platform_driver(irot_driver);
 
 MODULE_AUTHOR("Axiado Corporation");
-MODULE_DESCRIPTION(IROT_DRIVER_DESC);
+MODULE_DESCRIPTION("Axiado AX3005 IRoT MCTP transport driver");
 MODULE_LICENSE("GPL");
