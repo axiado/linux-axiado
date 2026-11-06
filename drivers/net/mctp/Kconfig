@@ -3,17 +3,17 @@ if MCTP
 
 menu "MCTP Device Drivers"
 
-config MCTP_AXIADO_IROT
+config MCTP_TRANSPORT_AXIADO_IROT
 	tristate "MCTP transport over the Axiado AX3005 IRoT mailbox"
-	depends on MCTP && MAILBOX && OF
+	depends on MAILBOX && OF && OF_RESERVED_MEM
+	depends on ARCH_AXIADO || COMPILE_TEST
 	help
 	  MCTP transport for the RoT co-processor on Axiado AX3005 SoCs.
-	  Registers an AF_MCTP netdev (mctpirot0) so SPDM, PLDM and NSM
-	  run as normal AF_MCTP socket traffic.
+	  Registers an MCTP network interface so SPDM, PLDM and NSM run as
+	  normal AF_MCTP socket traffic.
 
-	  Packets flow over two shared-memory windows; the mailbox itself
-	  only carries 32-byte doorbell/ack messages, so a mailbox
-	  controller driver providing "tx"/"rx" channels is also needed.
+	  Packets flow over two shared-memory windows; the mailbox only
+	  carries small doorbell and acknowledgment messages.
 
 	  To compile this driver as a module, choose M here: the module will
 	  be called axiado-mctp-irot.
