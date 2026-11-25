@@ -145,6 +145,15 @@
 #define CDNS_I2C_POLL_US_ATOMIC	10
 #define CDNS_I2C_TIMEOUT_US	500000
 
+/*
+ * Longest wait for an inbound (slave) transfer to finish before switching
+ * to master. Covers a 255-byte SMBus block at 100 kHz plus clock
+ * stretching; an MCTP packet at 400 kHz takes about 2 ms.
+ */
+#define CDNS_I2C_INBOUND_WAIT_US	50000
+/* Longest wait for the winning master's STOP after losing arbitration */
+#define CDNS_I2C_ARB_LOST_WAIT_US	100000
+
 #define cdns_i2c_readreg(offset)       readl_relaxed(id->membase + offset)
 #define cdns_i2c_writereg(val, offset) writel_relaxed(val, id->membase + offset)
 
@@ -1033,8 +1042,24 @@ static int cdns_i2c_process_msg(struct cdns_i2c *id, struct i2c_msg *msg,
 			  CDNS_I2C_IDR_OFFSET);
 
 	/* If it is bus arbitration error, try again */
-	if (id->err_status & CDNS_I2C_IXR_ARB_LOST)
+	if (id->err_status & CDNS_I2C_IXR_ARB_LOST) {
+		/*
+		 * The winner is still transferring, often to our own slave
+		 * address, and the caller switches back to slave mode as soon
+		 * as we return. Release HOLD and let the winner finish (SR.BA
+		 * clear) first, so CR is not rewritten in the middle of its
+		 * packet. Our slave cannot catch that packet anyway (its START
+		 * was seen in master mode), so the remote master gets a NACK
+		 * and retries. If BA stays set, the bus-free poll of the next
+		 * attempt handles it.
+		 */
+		cdns_i2c_clear_bus_hold(id);
+		if (!id->atomic)
+			readl_relaxed_poll_timeout(id->membase + CDNS_I2C_SR_OFFSET,
+						   reg, !(reg & CDNS_I2C_SR_BA),
+						   100, CDNS_I2C_ARB_LOST_WAIT_US);
 		return -EAGAIN;
+	}
 
 	if (msg->flags & I2C_M_RECV_LEN)
 		msg->len += min_t(unsigned int, msg->buf[0], I2C_SMBUS_BLOCK_MAX);
@@ -1119,6 +1144,29 @@ static int cdns_i2c_master_common_xfer(struct i2c_adapter *adap,
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
+/**
+ * cdns_i2c_wait_inbound_done - Wait for an inbound slave transfer to finish
+ * @id:		pointer to the i2c device
+ *
+ * Poll until no transfer is on the bus (SR.BA clear: the remote master sent
+ * its STOP) and the slave ISR has drained the RX FIFO (SR.RXDV clear). The
+ * slave interrupt stays enabled while we wait.
+ *
+ * Return: 0 if the bus is quiet, -ETIMEDOUT if it is still busy after
+ * CDNS_I2C_INBOUND_WAIT_US.
+ */
+static int cdns_i2c_wait_inbound_done(struct cdns_i2c *id)
+{
+	const u32 busy = CDNS_I2C_SR_BA | CDNS_I2C_SR_RXDV;
+	u32 sr;
+
+	return readl_relaxed_poll_timeout(id->membase + CDNS_I2C_SR_OFFSET, sr,
+					  !(sr & busy), 20,
+					  CDNS_I2C_INBOUND_WAIT_US);
+}
+#endif
+
 /**
  * cdns_i2c_master_xfer - The main i2c transfer function
  * @adap:	pointer to the i2c adapter driver instance
@@ -1145,6 +1193,20 @@ static int cdns_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	/* Check i2c operating mode and switch if possible */
 	if (id->dev_mode == CDNS_I2C_MODE_SLAVE) {
+		if (id->slave_state != CDNS_I2C_SLAVE_STATE_IDLE) {
+			ret = -EAGAIN;
+			goto out;
+		}
+
+		/*
+		 * slave_state only leaves IDLE at the first DATA or COMP
+		 * interrupt, so a short inbound packet can still be on the bus.
+		 * Switching now would rewrite CR in the middle of it and our
+		 * START would collide with the remote master. Wait for it to
+		 * finish first. If the bus stays busy, carry on: the bus-free
+		 * poll in cdns_i2c_master_common_xfer() reports it.
+		 */
+		cdns_i2c_wait_inbound_done(id);
 		if (id->slave_state != CDNS_I2C_SLAVE_STATE_IDLE) {
 			ret = -EAGAIN;
 			goto out;
