@@ -30,6 +30,17 @@ properties:
       7 bit I2C address of the local endpoint.
       I2C_OWN_SLAVE_ADDRESS (1<<30) flag must be set.
 
+  tx-bus:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: |
+      Optional phandle to the I2C bus used to transmit MCTP packets. Packets
+      are still received on the bus the mctp-i2c-controller is attached to,
+      using the reg address, so the tx-bus controller must be wired to the
+      same physical bus. Used when the receiving controller cannot act as
+      an I2C master. Applies to every MCTP I2C instance of this
+      mctp-i2c-controller. When absent, packets are transmitted on the
+      receiving bus.
+
 additionalProperties: false
 
 required:
@@ -88,5 +99,26 @@ examples:
         #size-cells = <0>;
         reg = <1>;
         mctp-controller;
+      };
+    };
+
+  - |
+    // Receive on i2c-rx as target 0x10, transmit through i2c-tx.
+    #include <dt-bindings/i2c/i2c.h>
+
+    i2c3: i2c-tx {
+      #address-cells = <1>;
+      #size-cells = <0>;
+    };
+
+    i2c-rx {
+      #address-cells = <1>;
+      #size-cells = <0>;
+      mctp-controller;
+
+      mctp@10 {
+        compatible = "mctp-i2c-controller";
+        reg = <(0x10 | I2C_OWN_SLAVE_ADDRESS)>;
+        tx-bus = <&i2c3>;
       };
     };
