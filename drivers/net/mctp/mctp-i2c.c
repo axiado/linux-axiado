@@ -59,7 +59,12 @@ struct mctp_i2c_client;
 /* The netdev structure. One of these per I2C adapter. */
 struct mctp_i2c_dev {
 	struct net_device *ndev;
+	/* Bus the netdev is bound to; MCTP packets are received here */
 	struct i2c_adapter *adapter;
+	/* Bus used for transmit. Same as adapter unless the client has a
+	 * "tx-bus" override, in which case we hold an i2c_get_adapter() ref.
+	 */
+	struct i2c_adapter *tx_adapter;
 	struct mctp_i2c_client *client;
 	struct list_head list; /* For mctp_i2c_client.devs */
 
@@ -92,6 +97,8 @@ struct mctp_i2c_dev {
 struct mctp_i2c_client {
 	struct i2c_client *client;
 	u8 lladdr;
+	/* Optional "tx-bus" override, NULL to transmit on the rx bus */
+	struct device_node *tx_np;
 
 	struct mctp_i2c_dev *sel;
 	struct list_head devs;
@@ -133,6 +140,8 @@ static struct mctp_i2c_client *mctp_i2c_new_client(struct i2c_client *client)
 {
 	struct mctp_i2c_client *mcli = NULL;
 	struct i2c_adapter *root = NULL;
+	struct device_node *tx_np = NULL;
+	struct i2c_adapter *tx_adap;
 	int rc;
 
 	if (client->flags & I2C_CLIENT_TEN) {
@@ -157,6 +166,20 @@ static struct mctp_i2c_client *mctp_i2c_new_client(struct i2c_client *client)
 		goto err;
 	}
 
+	/* Optional separate bus for transmit. Defer until it is registered,
+	 * netdevs can't be created without it.
+	 */
+	tx_np = of_parse_phandle(client->dev.of_node, "tx-bus", 0);
+	if (tx_np) {
+		tx_adap = of_find_i2c_adapter_by_node(tx_np);
+		if (!tx_adap) {
+			rc = dev_err_probe(&client->dev, -EPROBE_DEFER,
+					   "tx-bus %pOF not available\n", tx_np);
+			goto err;
+		}
+		put_device(&tx_adap->dev);
+	}
+
 	mcli = kzalloc(sizeof(*mcli), GFP_KERNEL);
 	if (!mcli) {
 		rc = -ENOMEM;
@@ -167,6 +190,7 @@ static struct mctp_i2c_client *mctp_i2c_new_client(struct i2c_client *client)
 	INIT_LIST_HEAD(&mcli->list);
 	mcli->lladdr = client->addr & 0xff;
 	mcli->client = client;
+	mcli->tx_np = tx_np;
 	i2c_set_clientdata(client, mcli);
 
 	rc = i2c_slave_register(mcli->client, mctp_i2c_slave_cb);
@@ -179,6 +203,7 @@ static struct mctp_i2c_client *mctp_i2c_new_client(struct i2c_client *client)
 
 	return mcli;
 err:
+	of_node_put(tx_np);
 	if (mcli) {
 		i2c_unregister_device(mcli->client);
 		kfree(mcli);
@@ -196,10 +221,12 @@ static void mctp_i2c_free_client(struct mctp_i2c_client *mcli)
 
 	rc = i2c_slave_unregister(mcli->client);
 	/* Leak if it fails, we can't propagate errors upwards */
-	if (rc < 0)
+	if (rc < 0) {
 		dev_err(&mcli->client->dev, "i2c unregister failed %d\n", rc);
-	else
+	} else {
+		of_node_put(mcli->tx_np);
 		kfree(mcli);
+	}
 }
 
 /* Switch the mctp i2c device to receive responses.
@@ -416,6 +443,9 @@ mctp_i2c_get_tx_flow_state(struct mctp_i2c_dev *midev, struct sk_buff *skb)
 /* We're not contending with ourselves here; we only need to exclude other
  * i2c clients from using the bus. refcounts are simply to prevent
  * recursive locking.
+ *
+ * The lock is taken on tx_adapter, as that is the bus __i2c_transfer()
+ * is performed on.
  */
 static void mctp_i2c_lock_nest(struct mctp_i2c_dev *midev)
 {
@@ -428,7 +458,7 @@ static void mctp_i2c_lock_nest(struct mctp_i2c_dev *midev)
 	spin_unlock_irqrestore(&midev->lock, flags);
 
 	if (lock)
-		i2c_lock_bus(midev->adapter, I2C_LOCK_SEGMENT);
+		i2c_lock_bus(midev->tx_adapter, I2C_LOCK_SEGMENT);
 }
 
 static void mctp_i2c_unlock_nest(struct mctp_i2c_dev *midev)
@@ -443,7 +473,7 @@ static void mctp_i2c_unlock_nest(struct mctp_i2c_dev *midev)
 	spin_unlock_irqrestore(&midev->lock, flags);
 
 	if (unlock)
-		i2c_unlock_bus(midev->adapter, I2C_LOCK_SEGMENT);
+		i2c_unlock_bus(midev->tx_adapter, I2C_LOCK_SEGMENT);
 }
 
 /* Unlocks the bus if was previously locked, used for cleanup */
@@ -458,7 +488,7 @@ static void mctp_i2c_unlock_reset(struct mctp_i2c_dev *midev)
 	spin_unlock_irqrestore(&midev->lock, flags);
 
 	if (unlock)
-		i2c_unlock_bus(midev->adapter, I2C_LOCK_SEGMENT);
+		i2c_unlock_bus(midev->tx_adapter, I2C_LOCK_SEGMENT);
 }
 
 static void mctp_i2c_invalidate_tx_flow(struct mctp_i2c_dev *midev,
@@ -543,7 +573,7 @@ static void mctp_i2c_xmit(struct mctp_i2c_dev *midev, struct sk_buff *skb)
 		/* no flow: full lock & unlock */
 		mctp_i2c_lock_nest(midev);
 		mctp_i2c_device_select(midev->client, midev);
-		rc = __i2c_transfer(midev->adapter, &msg, 1);
+		rc = __i2c_transfer(midev->tx_adapter, &msg, 1);
 		mctp_i2c_unlock_nest(midev);
 		break;
 
@@ -557,7 +587,7 @@ static void mctp_i2c_xmit(struct mctp_i2c_dev *midev, struct sk_buff *skb)
 
 	case MCTP_I2C_TX_FLOW_EXISTING:
 		/* existing flow: we already have the lock; just tx */
-		rc = __i2c_transfer(midev->adapter, &msg, 1);
+		rc = __i2c_transfer(midev->tx_adapter, &msg, 1);
 
 		/* on tx errors, the flow can no longer be considered valid */
 		if (rc < 0)
@@ -570,6 +600,9 @@ static void mctp_i2c_xmit(struct mctp_i2c_dev *midev, struct sk_buff *skb)
 	}
 
 	if (rc < 0) {
+		dev_warn_ratelimited(&midev->tx_adapter->dev,
+				     "%s: tx to 0x%02x failed %d\n",
+				     midev->ndev->name, msg.addr, rc);
 		stats->tx_errors++;
 	} else {
 		stats->tx_bytes += skb->len;
@@ -594,7 +627,7 @@ static void mctp_i2c_flow_release(struct mctp_i2c_dev *midev)
 	spin_unlock_irqrestore(&midev->lock, flags);
 
 	if (unlock)
-		i2c_unlock_bus(midev->adapter, I2C_LOCK_SEGMENT);
+		i2c_unlock_bus(midev->tx_adapter, I2C_LOCK_SEGMENT);
 }
 
 static int mctp_i2c_header_create(struct sk_buff *skb, struct net_device *dev,
@@ -758,16 +791,34 @@ static struct mctp_i2c_dev *mctp_i2c_midev_init(struct net_device *dev,
 						struct i2c_adapter *adap)
 {
 	struct mctp_i2c_dev *midev = netdev_priv(dev);
+	struct i2c_adapter *tx_adap = adap;
 	unsigned long flags;
+
+	if (mcli->tx_np) {
+		tx_adap = of_get_i2c_adapter_by_node(mcli->tx_np);
+		if (!tx_adap)
+			return ERR_PTR(-EPROBE_DEFER);
+		if (tx_adap == adap) {
+			/* tx-bus is the rx bus, no override */
+			i2c_put_adapter(tx_adap);
+		} else {
+			dev_info(&mcli->client->dev, "%s: tx via %s\n",
+				 dev_name(&adap->dev), dev_name(&tx_adap->dev));
+		}
+	}
 
 	midev->tx_thread = kthread_create(mctp_i2c_tx_thread, midev,
 					  "%s/tx", dev->name);
-	if (IS_ERR(midev->tx_thread))
+	if (IS_ERR(midev->tx_thread)) {
+		if (tx_adap != adap)
+			i2c_put_adapter(tx_adap);
 		return ERR_CAST(midev->tx_thread);
+	}
 
 	midev->ndev = dev;
 	get_device(&adap->dev);
 	midev->adapter = adap;
+	midev->tx_adapter = tx_adap;
 	get_device(&mcli->client->dev);
 	midev->client = mcli;
 	midev->flows_enabled = true;
@@ -820,6 +871,8 @@ static void mctp_i2c_midev_free(struct mctp_i2c_dev *midev)
 	spin_unlock_irqrestore(&mcli->sel_lock, flags);
 
 	skb_queue_purge(&midev->tx_queue);
+	if (midev->tx_adapter != midev->adapter)
+		i2c_put_adapter(midev->tx_adapter);
 	put_device(&midev->adapter->dev);
 	put_device(&mcli->client->dev);
 }
@@ -940,9 +993,12 @@ err:
 	return rc;
 }
 
-/* Removes any netdev for adap. mcli is the parent root i2c client */
-static void mctp_i2c_remove_netdev(struct mctp_i2c_client *mcli,
-				   struct i2c_adapter *adap)
+/* Finds the netdev of mcli that receives on adap (tx == false), or that
+ * transmits on adap via a "tx-bus" override (tx == true).
+ */
+static struct mctp_i2c_dev *mctp_i2c_find_midev(struct mctp_i2c_client *mcli,
+						struct i2c_adapter *adap,
+						bool tx)
 {
 	struct mctp_i2c_dev *midev = NULL, *m = NULL;
 	unsigned long flags;
@@ -950,15 +1006,50 @@ static void mctp_i2c_remove_netdev(struct mctp_i2c_client *mcli,
 	WARN_ON(!mutex_is_locked(&driver_clients_lock));
 	spin_lock_irqsave(&mcli->sel_lock, flags);
 	/* List size is limited by number of MCTP netdevs on a single hardware bus */
-	list_for_each_entry(m, &mcli->devs, list)
-		if (m->adapter == adap) {
+	list_for_each_entry(m, &mcli->devs, list) {
+		if (tx ? (m->tx_adapter == adap && m->adapter != adap) :
+			 m->adapter == adap) {
 			midev = m;
 			break;
 		}
+	}
 	spin_unlock_irqrestore(&mcli->sel_lock, flags);
 
+	return midev;
+}
+
+/* Removes any netdev for adap. mcli is the parent root i2c client */
+static void mctp_i2c_remove_netdev(struct mctp_i2c_client *mcli,
+				   struct i2c_adapter *adap)
+{
+	struct mctp_i2c_dev *midev;
+
+	midev = mctp_i2c_find_midev(mcli, adap, false);
 	if (midev)
 		mctp_i2c_unregister(midev);
+}
+
+/* Removes all netdevs that transmit on adap through a "tx-bus" override */
+static void mctp_i2c_remove_tx_netdevs(struct mctp_i2c_client *mcli,
+				       struct i2c_adapter *adap)
+{
+	struct mctp_i2c_dev *midev;
+
+	while ((midev = mctp_i2c_find_midev(mcli, adap, true)))
+		mctp_i2c_unregister(midev);
+}
+
+/* Whether adap is the "tx-bus" of mcli. Same matching as
+ * of_find_i2c_adapter_by_node(): the adapter or its parent device.
+ */
+static bool mctp_i2c_is_tx_bus(struct mctp_i2c_client *mcli,
+			       struct i2c_adapter *adap)
+{
+	if (!mcli->tx_np)
+		return false;
+	return device_match_of_node(&adap->dev, mcli->tx_np) ||
+	       (adap->dev.parent &&
+		device_match_of_node(adap->dev.parent, mcli->tx_np));
 }
 
 /* Determines whether a device is an i2c adapter.
@@ -1010,6 +1101,9 @@ static int mctp_i2c_client_try_attach(struct device *dev, void *data)
 	 */
 	if (!mctp_i2c_adapter_match(adap, adap == root))
 		return 0;
+	/* Already attached, when re-run after the tx-bus reappears */
+	if (mctp_i2c_find_midev(mcli, adap, false))
+		return 0;
 
 	return mctp_i2c_add_netdev(mcli, adap);
 }
@@ -1023,12 +1117,21 @@ static void mctp_i2c_notify_add(struct device *dev)
 	adap = mctp_i2c_get_adapter(dev, &root);
 	if (!adap)
 		return;
+
+	mutex_lock(&driver_clients_lock);
+	/* A "tx-bus" (re)appeared: attach any netdevs that were waiting on it */
+	list_for_each_entry(m, &driver_clients, list) {
+		if (mctp_i2c_is_tx_bus(m, adap))
+			i2c_for_each_dev(m, mctp_i2c_client_try_attach);
+	}
+
 	/* Check for mctp-controller property on the adapter */
-	if (!mctp_i2c_adapter_match(adap, false))
+	if (!mctp_i2c_adapter_match(adap, false)) {
+		mutex_unlock(&driver_clients_lock);
 		return;
+	}
 
 	/* Find an existing mcli for adap's root */
-	mutex_lock(&driver_clients_lock);
 	list_for_each_entry(m, &driver_clients, list) {
 		if (m->client->adapter == root) {
 			mcli = m;
@@ -1036,7 +1139,8 @@ static void mctp_i2c_notify_add(struct device *dev)
 		}
 	}
 
-	if (mcli) {
+	/* May already be attached above if adap is also the tx-bus */
+	if (mcli && !mctp_i2c_find_midev(mcli, adap, false)) {
 		rc = mctp_i2c_add_netdev(mcli, adap);
 		if (rc < 0)
 			dev_warn(dev, "Failed adding mctp-i2c net device\n");
@@ -1054,6 +1158,12 @@ static void mctp_i2c_notify_del(struct device *dev)
 		return;
 
 	mutex_lock(&driver_clients_lock);
+	/* Drop netdevs transmitting on adap, their tx-bus reference would
+	 * otherwise block i2c_del_adapter()
+	 */
+	list_for_each_entry(mcli, &driver_clients, list)
+		mctp_i2c_remove_tx_netdevs(mcli, adap);
+
 	list_for_each_entry(mcli, &driver_clients, list) {
 		if (mcli->client->adapter == root) {
 			mctp_i2c_remove_netdev(mcli, adap);
